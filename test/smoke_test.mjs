@@ -63,6 +63,7 @@ console.log('✓ judgeExpected: maximize/baseline delta/abs/no-baseline all cove
 assert.equal(judgeExpected('judged', { exitCode: 0, stdout: '' }), 'unverifiable', 'judged w/o judge is NOT passed');
 assert.equal(judgeExpected('judged', { exitCode: 0, stdout: '' }, { judgeExit: 0 }), 'passed');
 assert.equal(judgeExpected('judged', { exitCode: 0, stdout: '' }, { judgeExit: 1 }), 'failed');
+assert.equal(judgeExpected('judged', { exitCode: 0, stdout: '' }, { judgeExit: 127 }), 'unverifiable', 'missing judge (127) = unverifiable, not failed');
 console.log('✓ judgeExpected: judged via deterministic judge (probe) covered');
 
 // runGate 基线闭环：首轮建基线（unverifiable），次轮按 delta 判定
@@ -85,12 +86,14 @@ const judgedContract = `objective: judged 闭环
 AC-1 | 判官说行 | check: \`echo evidence\` | probe: \`test -f a.txt\` | expected: judged
 AC-2 | 判官说不行 | check: \`echo evidence\` | probe: \`test -f NOPE\` | expected: judged
 AC-3 | 无判官 | check: \`echo x\` | expected: judged
+AC-4 | 判官缺失 | check: \`echo evidence\` | probe: \`definitely-missing-cmd-xyz\` | expected: judged
 `;
 const j = runGate(judgedContract, { cwd: dir });
 const byId = Object.fromEntries(j.results.map(r => [r.id, r.status]));
 assert.equal(byId['AC-1'], 'passed', 'judge probe ok -> passed');
 assert.equal(byId['AC-2'], 'failed', 'judge probe fails -> failed');
 assert.equal(byId['AC-3'], 'unverifiable', 'judged without judge -> unverifiable');
+assert.equal(byId['AC-4'], 'unverifiable', 'missing judge command -> unverifiable (not failed)');
 console.log('✓ runGate: judged rows use probe as deterministic judge');
 
 // 假完成计数

@@ -34,7 +34,7 @@ AC-2 | ... | check: `...` | expected: exit=0
 - `[probe:]` 是 verify-the-verifier（R9）：探针先跑，探针失败的 AC 判 `unverifiable` 而非 `passed`；`unverifiable` 比例 > 1/3 整个门控回 NO-GO。
 - `[metric:]` 从 stdout 提指标值（一个捕获组）；不写则回退"取输出最后一个数字"——输出混有其他数字时务必写。
 - `maximize` 与上一轮指标比：`baseline: delta` 要求严格改善，`abs`（缺省）要求不回退；首轮无基线 → `unverifiable`（先跑一轮 `goal_gate_check` 建基线）。
-- `judged` 以 `probe` 为确定性判官，probe 退出码即结论；无 probe 的 `judged` 一律 `unverifiable`（Goodhart 防线）。
+- `judged` 以 `probe` 为确定性判官，probe 退出码即结论；无 probe 或判官缺失（127）的 `judged` 一律 `unverifiable`（验证器坏了 ≠ 判了不行）。
 - 契约写到 `.goal-gate/goal.md`（工作区根）。
 
 ## 门控与拦截
@@ -55,7 +55,7 @@ AC-2 | ... | check: `...` | expected: exit=0
 1. 写契约骨架（占位 check 是 fail-closed 的 `TODO-REPLACE-ME`）+ `.goal-gate/loop.json`（`maxRounds`，默认 8）；
 2. 返回循环协议与从每条 AC 派生的 Agent Teams 建议任务；
 3. 每轮门控评估追加进 `.goal-gate/history.jsonl`（ts/trigger/round/code/score/totals/失败 AC）——循环优化的轨迹；
-4. NO-GO → 把 `failedActions` 变 repair 任务再验；GO 之前绝不声明完成。假完成 2 次 → BLOCKED 等人；轮次超预算 → `roundsExhausted` 停下上报。
+4. NO-GO → 把 `failedActions` 变 repair 任务再验；GO 之前绝不声明完成。假完成 2 次 → BLOCKED 等人；轮次预算只计优化迭代（check/完成声明评估），goal-only 任务里程碑记账不吃预算；超预算 → `roundsExhausted` 停下上报。
 
 自优化规则：`score` 不得回退（`regression: true` 先修回退）；`maximize` + `baseline: delta` 的 AC 要求逐轮严格改善。
 

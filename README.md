@@ -34,7 +34,7 @@ Every `check` must be a **named, failable command** — include the environment 
 - `[probe:]` is *verify-the-verifier* (R9): the probe runs first; a probe failure marks the AC `unverifiable` rather than `passed`. More than 1/3 unverifiable → the whole gate returns NO-GO.
 - `[metric:]` extracts the metric value from stdout (one capture group). Without it the gate falls back to the last number in the output — write `metric:` whenever the output contains other numbers.
 - `maximize` compares against the previous round's metric: `baseline: delta` requires strict improvement, `baseline: abs` (default) requires no regression. The first run has no baseline → `unverifiable` (run `goal_gate_check` once to establish it).
-- `judged` uses the `probe` as a deterministic judge — the probe's exit code *is* the verdict. Without a probe, `judged` is `unverifiable` (Goodhart guard).
+- `judged` uses the `probe` as a deterministic judge — the probe's exit code *is* the verdict. Without a probe, or when the judge command is missing (exit 127), `judged` is `unverifiable` (a broken verifier is not a failing verdict).
 - Contract lives at `.goal-gate/goal.md` in the workspace root.
 
 ## Gate & interception
@@ -55,7 +55,7 @@ Every `check` must be a **named, failable command** — include the environment 
 1. writes the contract skeleton (placeholder checks are fail-closed `TODO-REPLACE-ME`) and `.goal-gate/loop.json` (`maxRounds`, default 8);
 2. returns the loop protocol and suggested Agent Teams tasks derived from each AC;
 3. every gate evaluation is appended to `.goal-gate/history.jsonl` (`ts/trigger/round/code/score/totals/failed ACs`) — the trajectory the loop optimizes against;
-4. NO-GO → turn `failedActions` into repair tasks, re-check; never claim completion before GO. Two caught false-completes → `BLOCKED` (human). Round budget exhausted → `roundsExhausted`, stop and escalate.
+4. NO-GO → turn `failedActions` into repair tasks, re-check; never claim completion before GO. Two caught false-completes → `BLOCKED` (human). The round budget counts optimization iterations only (check / completion-claim evaluations) — goal-only milestone records don't consume it; budget exhausted → `roundsExhausted`, stop and escalate.
 
 Self-optimization rule: `score` must not regress (`regression: true` → fix the regression first); `maximize` ACs with `baseline: delta` require strict metric improvement round over round.
 

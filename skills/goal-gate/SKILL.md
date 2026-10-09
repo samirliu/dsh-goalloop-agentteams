@@ -31,7 +31,7 @@ description: >
   - maximize：与上一轮指标比。baseline: delta = 必须严格改善；abs（缺省）= 不得
     回退。首轮无基线 → unverifiable（先跑一轮 goal_gate_check 建基线再判）。
   - judged：probe 即确定性判官，probe 退出码就是结论（0=passed，非0=failed）；
-    没有 probe 的 judged 行一律 unverifiable（Goodhart 防线）。
+    判官缺失（127）或没有 probe 的 judged 行一律 unverifiable（Goodhart 防线）。
 
   【门控】goal_gate_check 自己重跑每条 check，零模型参与。
   rc=0 GO / rc=2 NO-GO / rc=3 BLOCKED / rc=4 状态错。输出含 score（passed/总数）、

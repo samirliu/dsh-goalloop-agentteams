@@ -259,4 +259,23 @@ assert.equal(r7c.remainingRounds, 0);
 assert.equal(r7a.roundsExhausted, false);
 console.log('✓ [14] round budget: roundsExhausted after maxRounds');
 
+// ── 轮次预算口径：goal-only 任务里程碑记账不吃预算 ──────────────────────────
+const work15 = fs.mkdtempSync('/tmp/goal-gate-wiring15-');
+const agent15 = { session: { header: { cwd: work15 } } };
+fs.writeFileSync(path.join(work15, 'a.txt'), 'x\n');
+fs.mkdirSync(path.join(work15, '.goal-gate'), { recursive: true });
+fs.writeFileSync(path.join(work15, '.goal-gate', 'goal.md'), `objective: 轮次预算口径
+exit: goal-only
+AC-1 | 过 | check: \`test -f a.txt\` | expected: exit=0
+AC-2 | 不过 | check: \`test -f NOPE\` | expected: exit=0
+`);
+await listen({ name: 'agent_teams_update_task', arguments: { status: 'completed', task_id: 't1' }, agent: agent15 }, next);
+await listen({ name: 'agent_teams_update_task', arguments: { status: 'completed', task_id: 't2' }, agent: agent15 }, next);
+const r15 = await checkTool.execute({}, { agent: agent15 });
+assert.equal(r15.round, 1, 'task milestones recorded but do not consume the round budget');
+const hist15 = fs.readFileSync(path.join(work15, '.goal-gate', 'history.jsonl'), 'utf8').trim().split('\n');
+assert.equal(hist15.length, 3, 'all three evaluations recorded in history');
+assert.equal(JSON.parse(hist15[0]).trigger, 'task-claim');
+console.log('✓ [15] round budget scope: milestone claims do not consume optimization rounds');
+
 console.log('\nAll wiring smoke tests passed.');
