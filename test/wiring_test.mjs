@@ -35,6 +35,16 @@ fs.writeFileSync(path.join(work, 'a.txt'), 'stable content\n');
 assert.deepEqual(await listen(exec('update_goal', { action: 'complete' }), next), { kind: 'allow' });
 console.log('✓ [0] no contract -> pass through (not a hard block)');
 
+// [0b] 契约存在但为空 → 拦（配置错了要暴露，不能静默放行）——用独立目录，不干扰 init 流
+const work2 = fs.mkdtempSync('/tmp/goal-gate-wiring2-');
+const agent2 = { session: { header: { cwd: work2 } } };
+fs.mkdirSync(path.join(work2, '.goal-gate'), { recursive: true });
+fs.writeFileSync(path.join(work2, '.goal-gate', 'goal.md'), '');
+const d0b = await listen({ name: 'update_goal', arguments: { action: 'complete' }, agent: { session: { header: { cwd: work2 } } } }, next);
+assert.equal(d0b.kind, 'deny');
+assert.equal(d0b.info.code, 'state-error');
+console.log('✓ [0b] empty/malformed contract -> deny (surfaces misconfig)');
+
 // init 生成契约
 const initTool = registeredTools.find(t => t.name === 'goal_gate_init');
 const initRes = await initTool.execute({}, { agent });
