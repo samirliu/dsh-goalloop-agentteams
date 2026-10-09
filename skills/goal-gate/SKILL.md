@@ -18,6 +18,7 @@ description: >
 
   【契约文法】目标写成可失败的具名检查：
     objective: <一句话目标>
+    [exit: goal-only | strict]（完成声明治理策略，见下）
     AC-N | <yes/no 判定语句> | check: `<命令>` | [probe: `<探针>`] |
            [metric: `<指标正则，带一个捕获组>`] | [baseline: delta|abs] | expected: <规格>
     规格 = exit=0 | <op><数字>（<=5 >0 =3 …）| maximize | judged
@@ -51,9 +52,14 @@ description: >
   【假完成计数（R1）】完成声明被门控抓住 = 一次假完成；2 次 → BLOCKED 等人。
   门控绝不 throw，一律 {kind:'deny'} + 自带 code 的 reason。
 
-  【完成声明拦截（真实工具名）】tools/pre-execute 盯：
-  update_goal(action:'complete')、agent_teams_update_task(status:'completed')、
-  team_task_update(action:'complete')，旧名 update_task(status:'completed') 兼容。
-  没有契约时 pass-through（装插件不堵死未配置会话）；契约存在但空/畸形 → deny。
+  【完成声明拦截（真实工具名 + 分级治理）】tools/pre-execute 盯完成声明：
+  目标级 update_goal(action:'complete') **永远硬门控**（全量契约 + R1 计数）；
+  任务级 agent_teams_update_task(status:'completed')、team_task_update(action:'complete')、
+  旧名 update_task(status:'completed') 按契约 exit 策略分级：
+  - 缺省 strict：全量契约硬拦 + 计数（单工作单元：任务完成=目标完成）；
+  - exit: goal-only（goal_loop_at 生成的契约自动带上）：步骤进度放行（步骤判定属
+    quality-kind），GO→digest 绑定，NO-GO→只记账（history + partialCompletes）；
+    不分级会死锁多任务循环（成员完成自己的任务时别人的 AC 必然未过）。
+  BLOCKED（假完成≥2）冻结一切完成声明。没有契约时 pass-through；契约空/畸形 → deny。
   与 quality-gate 异常路径分离（它 throw，本插件 deny）。
 ---

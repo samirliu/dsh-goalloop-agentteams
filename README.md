@@ -23,6 +23,7 @@ DSH already has two layers of completion judgement — but neither is a determin
 
 ```
 objective: <one-line goal>
+[exit: goal-only | strict]
 AC-1 | <yes/no statement> | check: `<command>` | [probe: `<probe>`] | [metric: `<regex with one capture group>`] | [baseline: delta|abs] | expected: <spec>
 AC-2 | ... | check: `...` | expected: exit=0
 ```
@@ -42,7 +43,10 @@ Every `check` must be a **named, failable command** — include the environment 
 
 - `rc=0` GO / `rc=2` NO-GO / `rc=3` BLOCKED / `rc=4` state error
 - Output carries the optimization signal: `score` (passed/total), `round` / `maxRounds` / `remainingRounds`, `bestScore`, `regression` (score dropped below the high-water mark), `trend` (last 5 rounds), `failedActions` (per-AC repair list)
-- Interception is mounted on `tools/pre-execute`, covering `update_goal(action:'complete')`, `agent_teams_update_task(status:'completed')` and `team_task_update(action:'complete')` (legacy `update_task(status:'completed')` kept as alias)
+- Interception is mounted on `tools/pre-execute` with **claim scoping**: `update_goal(action:'complete')` (the goal-level claim) is *always* hard-gated against the full contract with the R1 false-complete counter. Task-level claims — `agent_teams_update_task(status:'completed')`, `team_task_update(action:'complete')`, legacy `update_task(status:'completed')` — follow the contract's `exit:` policy:
+  - `exit: strict` (default): full-contract hard gate + strike (single work unit: task completion *is* goal completion)
+  - `exit: goal-only` (what `goal_loop_at` writes): mid-loop task progress passes (step-level truth belongs to quality-kind contracts); GO binds a digest, NO-GO is recorded as `partialCompletes` only. Without this split, every multi-task team deadlocks: a member finishing its own task is denied because teammates' ACs are still failing
+  - `BLOCKED` (two caught false goal-completes) freezes every completion claim
 
 ## Goal loop (right loop / right eval / right metric)
 

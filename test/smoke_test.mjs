@@ -18,6 +18,7 @@ const parsed = parseContract(contract);
 assert.equal(parsed.acs.length, 4, 'should parse 4 ACs');
 assert.equal(parsed.objective, '产出一份带自检的研究包');
 assert.ok(contractStamp(contract).length === 8, 'stamp is 8 chars');
+assert.equal(parseContract('objective: x\nexit: goal-only\nAC-1 | y | check: `true` | expected: exit=0').exitPolicy, 'goal-only', 'exit policy parsed');
 console.log('✓ parse: 4 ACs, objective parsed, stamp =', contractStamp(contract));
 
 // 门控：AC-4 必然失败 → NO-GO

@@ -103,10 +103,52 @@ const stEnd = JSON.parse(fs.readFileSync(path.join(ledger, 'state.json'), 'utf8'
 assert.ok(stEnd.falseCompletes >= 2, `falseCompletes >= 2, got ${stEnd.falseCompletes}`);
 console.log('✓ [6] repeated false-completes ->', d6b.info.code, '(falseCompletes=' + stEnd.falseCompletes + ')');
 
-// [7] 旧名 update_task(status:completed) 也拦（兼容）
-const d7 = await listen(exec('update_task', { status: 'completed', task_id: 't1' }), next);
-assert.equal(d7.kind, 'deny');
-console.log('✓ [7] update_task(completed) legacy name also gated ->', d7.info.code);
+// [7] 完成声明分级治理
+// [7a] strict 缺省：任务级声明按全量契约硬拦 + 计数（旧名 update_task 兼容）
+const work7a = fs.mkdtempSync('/tmp/goal-gate-wiring7a-');
+const agent7a = { session: { header: { cwd: work7a } } };
+const exec7a = (name, args) => ({ name, arguments: args, agent: agent7a });
+fs.writeFileSync(path.join(work7a, 'a.txt'), 'x\n');
+fs.mkdirSync(path.join(work7a, '.goal-gate'), { recursive: true });
+fs.writeFileSync(path.join(work7a, '.goal-gate', 'goal.md'), `objective: strict 缺省
+AC-1 | 过 | check: \`test -f a.txt\` | expected: exit=0
+AC-2 | 不过 | check: \`test -f NOPE\` | expected: exit=0
+`);
+const d7a = await listen(exec7a('update_task', { status: 'completed', task_id: 't1' }), next);
+assert.equal(d7a.kind, 'deny', 'legacy update_task gated under default strict policy');
+assert.equal(d7a.info.code, 'no-go');
+const st7a = JSON.parse(fs.readFileSync(path.join(work7a, '.goal-gate', 'state.json'), 'utf8'));
+assert.equal(st7a.falseCompletes, 1, 'strict task claim counts a strike');
+
+// [7b] exit: goal-only：任务级声明放行 + 记账（多任务循环不卡死）
+const work7b = fs.mkdtempSync('/tmp/goal-gate-wiring7b-');
+const agent7b = { session: { header: { cwd: work7b } } };
+const exec7b = (name, args) => ({ name, arguments: args, agent: agent7b });
+fs.writeFileSync(path.join(work7b, 'a.txt'), 'x\n');
+fs.mkdirSync(path.join(work7b, '.goal-gate'), { recursive: true });
+fs.writeFileSync(path.join(work7b, '.goal-gate', 'goal.md'), `objective: goal-only 循环
+exit: goal-only
+AC-1 | 过 | check: \`test -f a.txt\` | expected: exit=0
+AC-2 | 不过 | check: \`test -f NOPE\` | expected: exit=0
+`);
+const d7b = await listen(exec7b('agent_teams_update_task', { status: 'completed', task_id: 't1' }), next);
+assert.equal(d7b.kind, 'allow', 'goal-only: mid-loop task completion passes');
+const st7b = JSON.parse(fs.readFileSync(path.join(work7b, '.goal-gate', 'state.json'), 'utf8'));
+assert.equal(st7b.partialCompletes, 1, 'partial completion recorded');
+assert.equal(st7b.falseCompletes, 0, 'no strike for goal-only task claims');
+
+// [7c] goal-only 下目标级声明仍硬拦
+const d7c = await listen(exec7b('update_goal', { action: 'complete' }), next);
+assert.equal(d7c.kind, 'deny', 'goal claim stays hard-gated under goal-only');
+assert.equal(d7c.info.code, 'no-go');
+const d7c2 = await listen(exec7b('update_goal', { action: 'complete' }), next);
+assert.equal(d7c2.kind, 'deny', 'second goal strike');
+
+// [7d] BLOCKED 冻结：目标级假完成 2 次后任务声明也拦
+const d7d = await listen(exec7b('team_task_update', { action: 'complete', task_id: 't1' }), next);
+assert.equal(d7d.kind, 'deny', 'BLOCKED freezes task claims too');
+assert.equal(d7d.info.code, 'blocked');
+console.log('✓ [7] claim scoping: strict hard-gate / goal-only pass-through / goal always hard / BLOCKED freeze');
 
 // [8] 工作区根目录取的是 agent.session.header.cwd，不是 process.cwd()
 assert.notEqual(work, process.cwd(), 'test uses agent cwd, not process.cwd');
@@ -144,6 +186,7 @@ const contractText4 = fs.readFileSync(path.join(work4, '.goal-gate', 'goal.md'),
 assert.match(contractText4, /objective: 做一个可验证的报告/);
 assert.match(contractText4, /AC-1 \| 报告存在/);
 assert.match(contractText4, /TODO-REPLACE-ME/, 'placeholder check is fail-closed');
+assert.match(contractText4, /exit: goal-only/, 'loop contracts are goal-only (multi-task safe)');
 const loopJson = JSON.parse(fs.readFileSync(path.join(work4, '.goal-gate', 'loop.json'), 'utf8'));
 assert.equal(loopJson.maxRounds, 8, 'default round budget');
 assert.equal(loopJson.status, 'active');

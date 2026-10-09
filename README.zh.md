@@ -23,6 +23,7 @@ goal-gate 补的是硬地板：**自己重跑每条 AC 的 check，零模型参�
 
 ```
 objective: <一句话目标>
+[exit: goal-only | strict]
 AC-1 | <yes/no 判定语句> | check: `<命令>` | [probe: `<探针>`] | [metric: `<指标正则，带一个捕获组>`] | [baseline: delta|abs] | expected: <规格>
 AC-2 | ... | check: `...` | expected: exit=0
 ```
@@ -42,7 +43,10 @@ AC-2 | ... | check: `...` | expected: exit=0
 
 - `rc=0` GO / `rc=2` NO-GO / `rc=3` BLOCKED / `rc=4` 状态错
 - 输出带优化信号：`score`（passed/总数）、`round`/`maxRounds`/`remainingRounds`、`bestScore`、`regression`（回退标记）、`trend`（近 5 轮）、`failedActions`（逐条修复清单）
-- 拦截挂在 `tools/pre-execute`，盯完成声明：`update_goal(action:'complete')`、`agent_teams_update_task(status:'completed')`、`team_task_update(action:'complete')`（旧名 `update_task(status:'completed')` 兼容）
+- 拦截挂在 `tools/pre-execute`，**按完成声明作用域分级**：目标级 `update_goal(action:'complete')` **永远硬门控**（全量契约 + R1 假完成计数）；任务级 `agent_teams_update_task(status:'completed')`、`team_task_update(action:'complete')`、旧名 `update_task(status:'completed')` 按契约 `exit:` 策略分级：
+  - `exit: strict`（缺省）：全量契约硬拦 + 计数（单工作单元：任务完成=目标完成）
+  - `exit: goal-only`（`goal_loop_at` 生成的契约自动带上）：多任务循环中步骤进度放行（步骤判定属 quality-kind 契约）；GO 绑定 digest，NO-GO 只记 `partialCompletes`。不分级会死锁多任务循环：成员完成自己的任务时，队友的 AC 必然未过，会被误判假完成
+  - `BLOCKED`（目标级假完成 2 次）冻结一切完成声明
 
 ## 目标闭环（right loop / right eval / right metric）
 
