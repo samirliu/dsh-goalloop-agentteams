@@ -1,8 +1,10 @@
 # dsh-goalloop-agentteams
 
-**Deterministic goal-completion gate for DeepSeek Harness** — ports the *judging face* of the [goal-loop](https://github.com/samirliu/goal-loop) skill onto native **Agent Teams** + the **task board**.
+**Deterministic goal-completion gate for DeepSeek Harness** — ports the *judging face* of the [goal-loop](https://github.com/samirliu/goal-loop) skill onto native **Agent Teams** + the **task board**, and drives the full agentic loop from one trigger.
 
-Contract-first acceptance criteria, a gate that **re-runs every check itself** (zero model trust), verdicts bound to a tree digest, and a hard deny on false completion at `update_goal` / `update_task` via `tools/pre-execute`. The portable team-file protocol and dual-ledger bookkeeping from goal-loop are deliberately *not* ported — native Agent Teams is strictly stronger.
+Contract-first acceptance criteria, a gate that **re-runs every check itself** (zero model trust), verdicts bound to a tree digest, and a hard deny on false completion at `update_goal` / `agent_teams_update_task` / `team_task_update` via `tools/pre-execute`. The portable team-file protocol and dual-ledger bookkeeping from goal-loop are deliberately *not* ported — native Agent Teams is strictly stronger.
+
+**Trigger the loop:** `/goal-loop-at <objective>` (or the `goal_loop_at` tool) writes the contract + round config, returns the loop protocol and suggested Agent Teams tasks derived from each AC. Iterate via `goal_gate_check` (score, trend, failedActions), claim completion only on GO.
 
 中文说明见 [README.zh.md](README.zh.md)。
 
@@ -21,7 +23,7 @@ DSH already has two layers of completion judgement — but neither is a determin
 
 ```
 objective: <one-line goal>
-AC-1 | <yes/no statement> | check: `<command>` | [probe: `<probe>`] | expected: <spec>
+AC-1 | <yes/no statement> | check: `<command>` | [probe: `<probe>`] | [metric: `<regex with one capture group>`] | [baseline: delta|abs] | expected: <spec>
 AC-2 | ... | check: `...` | expected: exit=0
 ```
 
@@ -29,6 +31,9 @@ Spec = `exit=0` | `<op><number>` (`<=5`, `>0`, `=3`) | `maximize` | `judged`.
 Every `check` must be a **named, failable command** — include the environment dependency, the empty case, the error path — or the gate degrades into a tautology.
 
 - `[probe:]` is *verify-the-verifier* (R9): the probe runs first; a probe failure marks the AC `unverifiable` rather than `passed`. More than 1/3 unverifiable → the whole gate returns NO-GO.
+- `[metric:]` extracts the metric value from stdout (one capture group). Without it the gate falls back to the last number in the output — write `metric:` whenever the output contains other numbers.
+- `maximize` compares against the previous round's metric: `baseline: delta` requires strict improvement, `baseline: abs` (default) requires no regression. The first run has no baseline → `unverifiable` (run `goal_gate_check` once to establish it).
+- `judged` uses the `probe` as a deterministic judge — the probe's exit code *is* the verdict. Without a probe, `judged` is `unverifiable` (Goodhart guard).
 - Contract lives at `.goal-gate/goal.md` in the workspace root.
 
 ## Gate & interception
@@ -36,7 +41,19 @@ Every `check` must be a **named, failable command** — include the environment 
 `goal_gate_check` re-runs every check itself:
 
 - `rc=0` GO / `rc=2` NO-GO / `rc=3` BLOCKED / `rc=4` state error
-- Interception is mounted on `tools/pre-execute`, covering both `update_goal(action:'complete')` and `update_task(status:'completed')`
+- Output carries the optimization signal: `score` (passed/total), `round` / `maxRounds` / `remainingRounds`, `bestScore`, `regression` (score dropped below the high-water mark), `trend` (last 5 rounds), `failedActions` (per-AC repair list)
+- Interception is mounted on `tools/pre-execute`, covering `update_goal(action:'complete')`, `agent_teams_update_task(status:'completed')` and `team_task_update(action:'complete')` (legacy `update_task(status:'completed')` kept as alias)
+
+## Goal loop (right loop / right eval / right metric)
+
+`/goal-loop-at <objective>` (slash command) or `goal_loop_at` (tool) starts the loop:
+
+1. writes the contract skeleton (placeholder checks are fail-closed `TODO-REPLACE-ME`) and `.goal-gate/loop.json` (`maxRounds`, default 8);
+2. returns the loop protocol and suggested Agent Teams tasks derived from each AC;
+3. every gate evaluation is appended to `.goal-gate/history.jsonl` (`ts/trigger/round/code/score/totals/failed ACs`) — the trajectory the loop optimizes against;
+4. NO-GO → turn `failedActions` into repair tasks, re-check; never claim completion before GO. Two caught false-completes → `BLOCKED` (human). Round budget exhausted → `roundsExhausted`, stop and escalate.
+
+Self-optimization rule: `score` must not regress (`regression: true` → fix the regression first); `maximize` ACs with `baseline: delta` require strict metric improvement round over round.
 
 ## Three hard constraints (measured, not assumed)
 
@@ -60,7 +77,7 @@ The DSH Host bundles Node 24.21.0 (`runtime/primary-runtime/dependencies/node/bi
 dsh plugin add dsh-goalloop-agentteams
 ```
 
-Or from source: the repo declares `dsh.bundle` in `package.json` with a `cordis.patch.yml` beside it, so `dsh plugin add` picks it up directly. `apply(ctx, config)` registers the `goal_gate_check` tool, the `/goal-gate` command, and the `tools/pre-execute` listener.
+Or from source: the repo declares `dsh.bundle` in `package.json` with a `cordis.patch.yml` beside it, so `dsh plugin add` picks it up directly. `apply(ctx, config)` registers the `goal_loop_at` / `goal_gate_init` / `goal_gate_check` tools, the `/goal-loop-at` / `/goal-gate` commands, and the `tools/pre-execute` listener.
 
 ## Tests
 
@@ -78,6 +95,8 @@ The real `@deepseek-ai/dsh-tools` lives inside the DSH Host and is not importabl
 | `goal_gate.sh --check` re-run | `runGate` (R9 probe + expected-spec judgement) |
 | digest-bound verdicts (R7) | `treeDigest` + `verdict-stale` deny |
 | R1 false-complete count → BLOCKED | `falseCompleteRule` |
+| `/goal-loop-at` trigger + loop orchestration | `goal_loop_at` tool / `/goal-loop-at` command + `loop.json` round budget |
+| metric trajectory / self-optimization | `history.jsonl` + `score` / `bestScore` / `regression` |
 | `goal_team.sh` portable layer + dual ledger | **dropped** — use native Agent Teams + task board |
 
 ## License

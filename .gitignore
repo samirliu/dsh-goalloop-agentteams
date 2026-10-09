@@ -2,3 +2,4 @@ node_modules/
 .goal-gate/
 *.log
 .DS_Store
+*.tgz
