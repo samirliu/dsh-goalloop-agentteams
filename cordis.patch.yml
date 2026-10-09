@@ -1,4 +1,6 @@
+# dsh-goalloop-agentteams bundle patch: mounts the plugin into the host
+# composition of a dsh profile. The `name` must stay in sync with package.json `name`.
 - insert:
     - id: goal-gate
-      name: '@local/dsh-goal-gate'
+      name: 'dsh-goalloop-agentteams'
       config: {}
