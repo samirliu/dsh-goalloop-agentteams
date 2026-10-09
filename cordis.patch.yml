@@ -1,0 +1,4 @@
+- insert:
+    - id: goal-gate
+      name: '@local/dsh-goal-gate'
+      config: {}

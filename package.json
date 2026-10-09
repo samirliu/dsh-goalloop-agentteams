@@ -1,0 +1,38 @@
+{
+  "name": "dsh-goalloop-agentteams",
+  "description": "Deterministic goal/task completion gate for DSH: contract-first AC grammar, re-runs every verify command itself (zero model trust), binds verdicts to a tree digest (R7), and denies false completion on update_goal/update_task via tools/pre-execute. Ports goal-loop's judging face onto native Agent Teams + task board.",
+  "version": "0.1.0",
+  "license": "MIT",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./core": "./lib/core.js",
+    "./package.json": "./package.json"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/samirliu/dsh-goalloop-agentteams.git"
+  },
+  "homepage": "https://github.com/samirliu/dsh-goalloop-agentteams#readme",
+  "bugs": {
+    "url": "https://github.com/samirliu/dsh-goalloop-agentteams/issues"
+  },
+  "keywords": [
+    "dsh-plugin",
+    "dsh",
+    "deepseek-harness",
+    "agent-teams",
+    "goal",
+    "verification",
+    "quality-gate"
+  ],
+  "dsh": {
+    "engines": { "dsh": ">=0.1.0-rc.6" },
+    "bundle": { "patch": "./cordis.patch.yml" }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh": ">=0.1.0-rc.1 <0.1.0 || >=0.1.0-rc.1 <0.2.0-0",
+    "@deepseek-ai/dsh-tools": ">=0.1.0-rc.1 <0.1.0 || >=0.1.0-rc.1 <0.2.0-0"
+  }
+}
