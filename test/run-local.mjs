@@ -18,7 +18,7 @@ fs.writeFileSync(path.join(shimDst, 'package.json'), JSON.stringify({
   main: 'index.js', exports: { '.': './index.js' },
 }, null, 2));
 
-for (const t of ['smoke_test.mjs', 'wiring_test.mjs']) {
+for (const t of ['smoke_test.mjs', 'wiring_test.mjs', 'loadsafe_test.mjs']) {
   console.log(`\n=== ${t} ===`);
   const r = spawnSync(process.execPath, [path.join(root, 'test', t)], { stdio: 'inherit' });
   if (r.status !== 0) process.exit(r.status ?? 1);
