@@ -59,6 +59,11 @@ AC-2 | ... | check: `...` | expected: exit=0
 
 自优化规则：`score` 不得回退（`regression: true` 先修回退）；`maximize` + `baseline: delta` 的 AC 要求逐轮严格改善。
 
+**循环驱动兜底**:恢复会话可能拿不到 `goal_gate_*` 工具表——任何会话可用 bash 跑
+`bin/gate.mjs check --cwd <工作区>`(绝对路径 node)驱动循环,同一本账、同构输出。
+**eval 自我加固**:`preflight` 预检脆弱检查命令(裸 node/python、相对路径、疑似永真式);
+`neverFailed` 列出从未失败过的 AC(≥2 轮,疑似永真式)。
+
 ## 实测得到的三条硬约束（`/tmp/goal-gate-probe/order_probe.mjs`）
 
 1. **waterfall 先到先拦**：`tools/pre-execute` 里最先注册的那个层的 deny reason 到达用户，后面的层不会被调用。**reason 必须自带 code**，否则用户分不清是哪一层拦的（`[goal-gate:no-go]` / `[goal-gate:verdict-stale]` / `[goal-gate:blocked]`）。

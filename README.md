@@ -68,6 +68,8 @@ Every `check` must be a **named, failable command** — include the environment 
 
 Self-optimization rule: `score` must not regress (`regression: true` → fix the regression first); `maximize` ACs with `baseline: delta` require strict metric improvement round over round.
 
+**Loop driver fallback / 循环驱动兜底**: a resumed session may lack the `goal_gate_*` tools — drive the loop from any session via `bin/gate.mjs check --cwd <workspace>` (absolute-path node), same ledger, same output shape. **Eval hardening**: `preflight` flags fragile check commands (bare `node`/`python`, relative interpreters, tautology suspects) and `neverFailed` lists ACs that have never failed (suspected tautologies).
+
 ## Three hard constraints / 三条硬约束（实测所得）
 
 From an ordering probe (`tools/pre-execute` waterfall semantics, real deny-return shape):

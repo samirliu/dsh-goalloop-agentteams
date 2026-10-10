@@ -39,6 +39,11 @@ description: >
   回退，先修回退）、trend（近 5 轮）、failedActions（逐条 {id, statement, check,
   expected}，直接可转 repair 任务）。unverifiable 比例 > 1/3 整门控回 NO-GO。
 
+  【循环驱动兜底(重要)】恢复会话可能拿不到 goal_gate_* 工具表(实测)——循环必须始终
+  可驱动:任何会话用 bash 跑 `bin/gate.mjs check --cwd <工作区>`(绝对路径 node),
+  输出与 goal_gate_check 同构(score/round/failedActions/neverFailed/preflight)且记同一本账。
+  【eval 自我加固】preflight 检查命令(裸 node/python、相对路径、疑似永真式)并给出告警;
+  neverFailed 列出从未失败过的 AC(≥2 轮后,疑似永真式/未被真实考验)。
   【循环协议】/goal-loop-at {objective}（命令）或 goal_loop_at（工具）写契约骨架
   （占位 check 是 fail-closed 的 TODO-REPLACE-ME）+ loop.json（maxRounds，默认 8）
   并返回协议：派工（agent_teams_create，AC→质量任务）→ 迭代（goal_gate_check 看
