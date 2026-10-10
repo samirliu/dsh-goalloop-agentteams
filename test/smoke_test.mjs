@@ -62,6 +62,12 @@ assert.equal(judgeExpected('maximize', { exitCode: 0, stdout: '10\n' }, { prev: 
 assert.equal(judgeExpected('maximize', { exitCode: 0, stdout: '9\n' }, { prev: 10 }), 'failed', 'default is abs: regression fails');
 assert.equal(judgeExpected('maximize', { exitCode: 0, stdout: 'v=5 x=3\n', }, { prev: 4, metric: 'v=(\\d+)' }), 'passed', 'metric regex feeds maximize');
 console.log('✓ judgeExpected: maximize/baseline delta/abs/no-baseline all covered');
+// tolerance:抗测量噪声(基准类指标的假红防线)
+assert.equal(judgeExpected('maximize', { exitCode: 0, stdout: '95\n' }, { prev: 100, tolerance: 0.08 }), 'passed', 'abs: 噪声带内(-5%)不算回退');
+assert.equal(judgeExpected('maximize', { exitCode: 0, stdout: '85\n' }, { prev: 100, tolerance: 0.08 }), 'failed', 'abs: 超出噪声带(-15%)算真回退');
+assert.equal(judgeExpected('maximize', { exitCode: 0, stdout: '105\n' }, { prev: 100, baseline: 'delta', tolerance: 0.08 }), 'failed', 'delta: 噪声带内(+5%)不算真改善');
+assert.equal(judgeExpected('maximize', { exitCode: 0, stdout: '115\n' }, { prev: 100, baseline: 'delta', tolerance: 0.08 }), 'passed', 'delta: 超出噪声带(+15%)算真改善');
+console.log('✓ tolerance: abs noise band / abs real regression / delta noise / delta real improvement');
 
 // judged：无判官 → unverifiable；判官（probe）退出码即结论
 assert.equal(judgeExpected('judged', { exitCode: 0, stdout: '' }), 'unverifiable', 'judged w/o judge is NOT passed');
