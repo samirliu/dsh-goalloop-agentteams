@@ -48,6 +48,17 @@ AC-2 | 运行时 | check: \`node run-app.mjs\` | expected: exit=0
 assert.ok(w4.some((w) => w.kind === 'deliverable-unverified'), 'deliverable never touched by any check flagged');
 console.log('✓ preflight coverage: no-runtime-ac / judged-without-deliverable / deliverable-unverified');
 
+// 取数脆弱性:数值规格无 metric 正则 → 预检黄牌
+const w5 = preflightChecks(`objective: x
+deliverable: d.txt
+AC-1 | 多数字输出 | check: \`cat counts.txt\` | expected: >=30
+AC-2 | 健康 | check: \`cat counts.txt\` | metric: \`clean=(\\d+)\` | expected: >=30
+AC-3 | 运行时 | check: \`node run.mjs\` | expected: exit=0
+`);
+assert.ok(w5.some((w) => w.kind === 'numeric-without-metric' && w.id === 'AC-1'), 'numeric expected without metric regex flagged');
+assert.ok(!w5.some((w) => w.kind === 'numeric-without-metric' && w.id === 'AC-2'), 'with metric regex: no warning');
+console.log('✓ preflight: numeric-without-metric (fallback extraction is fragile)');
+
 // ── bash 驱动门控 CLI(恢复会话的循环兜底入口)──────────────────────────
 const root = fs.mkdtempSync('/tmp/gate-cli-');
 fs.writeFileSync(path.join(root, 'a.txt'), 'x\n');
