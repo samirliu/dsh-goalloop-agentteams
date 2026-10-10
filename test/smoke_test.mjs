@@ -35,6 +35,9 @@ console.log('✓ gate: rc=2 no-go, AC-4 caught, score =', g.score);
 // judgeExpected 边界
 assert.equal(judgeExpected('exit=0', { exitCode: 0, stdout: '' }), 'passed');
 assert.equal(judgeExpected('exit=0', { exitCode: 1, stdout: '' }), 'failed');
+assert.equal(judgeExpected('exit=2', { exitCode: 2, stdout: '' }), 'passed', 'error-path: must fail WITH code 2');
+assert.equal(judgeExpected('exit=3', { exitCode: 1, stdout: '' }), 'failed', 'wrong error code -> failed');
+assert.equal(judgeExpected('exit=2', { exitCode: 0, stdout: '' }), 'failed', 'success when failure required -> failed');
 assert.equal(judgeExpected('<=5', { exitCode: 0, stdout: '3\n' }), 'passed');
 assert.equal(judgeExpected('>10', { exitCode: 0, stdout: '3\n' }), 'failed');
 assert.equal(judgeExpected('>=1', { exitCode: 0, stdout: '       1\n' }), 'passed', 'tolerates wc indentation');
