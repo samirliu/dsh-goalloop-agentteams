@@ -92,6 +92,8 @@ dsh plugin add dsh-goalloop-agentteams
 
 Or from source: the repo declares `dsh.bundle` in `package.json` with a `cordis.patch.yml` beside it, so `dsh plugin add` picks it up directly. `apply(ctx, config)` registers the `goal_loop_at` / `goal_gate_init` / `goal_gate_check` tools, the `/goal-loop-at` / `/goal-gate` commands, and the `tools/pre-execute` listener.
 
+⚠️ **Entry contract (learned the hard way):** the entry must export `name` — equal to the `id` in `cordis.patch.yml` — alongside `inject` and `apply`. A missing `name` makes the Host **silently skip the bundle**: no tools, no interception, no error anywhere. Shim-based tests cannot catch this; verify tool registration against a restarted Host.
+
 ## Tests / 测试
 
 ```sh

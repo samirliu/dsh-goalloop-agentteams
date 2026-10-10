@@ -92,6 +92,8 @@ DSH Host 自带 Node 24.21.0（`runtime/primary-runtime/dependencies/node/bin/no
 
 经 `plugin_manager` `install_bundle` 装载；`apply(ctx, config)` 注册 `goal_loop_at` / `goal_gate_init` / `goal_gate_check` 工具 + `/goal-loop-at` / `/goal-gate` 命令 + `tools/pre-execute` 监听器。
 
+⚠️ **入口契约（实测踩坑）**：入口必须导出 `name`（等于 `cordis.patch.yml` 的 `id`），与 `inject`、`apply` 并列。缺 `name` 会让 Host **静默跳过整个 bundle**——工具没注册、拦截不生效、任何地方都不报错。shim 测试测不出这一层，必须对重启后的真 Host 验证工具注册。
+
 ## 测试
 
 ```bash

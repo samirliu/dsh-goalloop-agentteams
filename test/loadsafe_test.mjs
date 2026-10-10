@@ -4,6 +4,7 @@
 import assert from 'node:assert/strict';
 
 const mod = await import('../lib/index.js');
+assert.equal(mod.name, 'goal-gate', 'entry must export name (= cordis.patch.yml id) or the Host silently skips the bundle');
 assert.deepEqual(mod.inject, ['tools'], 'inject must be exactly ["tools"] (commands is lazy)');
 
 const registered = [];
