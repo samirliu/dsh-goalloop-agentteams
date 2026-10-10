@@ -1,0 +1,4 @@
+{"ts":"2026-10-10T04:30:02.541Z","trigger":"intercept","round":1,"code":"no-go","score":0.3333333333333333,"totals":{"passed":1,"failed":2,"unverifiable":0},"stamp":"34f4312f","failed":["AC-2","AC-3"],"unverifiable":[]}
+{"ts":"2026-10-10T04:30:09.803Z","trigger":"intercept","round":2,"code":"no-go","score":0.3333333333333333,"totals":{"passed":1,"failed":2,"unverifiable":0},"stamp":"34f4312f","failed":["AC-2","AC-3"],"unverifiable":[]}
+{"ts":"2026-10-10T04:30:33.597Z","trigger":"intercept","round":3,"code":"go","score":1,"totals":{"passed":3,"failed":0,"unverifiable":0},"stamp":"34f4312f","failed":[],"unverifiable":[]}
+{"ts":"2026-10-10T04:30:52.858Z","trigger":"task-claim","round":3,"code":"no-go","score":0.5,"totals":{"passed":1,"failed":1,"unverifiable":0},"stamp":"2348570a","failed":["AC-2"],"unverifiable":[]}

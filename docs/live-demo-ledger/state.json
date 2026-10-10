@@ -1,0 +1,11 @@
+{
+  "falseCompletes": 0,
+  "digests": {
+    "goal": "16675801b185+T"
+  },
+  "baselines": {
+    "AC-2": 3
+  },
+  "bestScore": 1,
+  "partialCompletes": 1
+}
