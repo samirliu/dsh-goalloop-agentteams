@@ -167,6 +167,10 @@ console.log('✓ treeDigest: changes on file edit (R7 invalidation works)');
 assert.equal(runGate('AC-1 | x | check: `true` | expected: exit=0', { cwd: dir }).code, 'state-error');
 assert.equal(runGate('objective: x', { cwd: dir }).code, 'state-error');
 console.log('✓ runGate: missing objective/AC -> state-error');
+const unp = runGate('objective: x\nAC-1 | ok | check: `test -d .` | expected: exit=0\nAC-2 | bad | check: `echo `nested`` | expected: exit=0\nAC-3 | ok | check: `test -d .` | expected: exit=0\nAC-4 | ok | check: `test -d .` | expected: exit=0', { cwd: dir });
+assert.equal(unp.code, 'state-error', 'unparseable AC line -> refuse to evaluate (fail-closed)');
+assert.match(unp.reason, /AC-2/, 'reason names the offending line');
+console.log('✓ runGate: unparsed AC line -> state-error (silent drop is forbidden)');
 
 // 全绿 → GO
 const green = `objective: ok

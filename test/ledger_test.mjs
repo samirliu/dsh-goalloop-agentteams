@@ -58,6 +58,9 @@ AC-3 | 运行时 | check: \`node run.mjs\` | expected: exit=0
 assert.ok(w5.some((w) => w.kind === 'numeric-without-metric' && w.id === 'AC-1'), 'numeric expected without metric regex flagged');
 assert.ok(!w5.some((w) => w.kind === 'numeric-without-metric' && w.id === 'AC-2'), 'with metric regex: no warning');
 console.log('✓ preflight: numeric-without-metric (fallback extraction is fragile)');
+const w6 = preflightChecks('objective: x\nAC-1 | bad | check: `echo `n`` | expected: exit=0\nAC-2 | 运行时 | check: `node r.mjs` | expected: exit=0');
+assert.ok(w6.some((w) => w.kind === 'ac-line-unparsed'), 'unparseable AC line flagged by preflight');
+console.log('✓ preflight: ac-line-unparsed (silent drop surfaced)');
 
 // ── bash 驱动门控 CLI(恢复会话的循环兜底入口)──────────────────────────
 const root = fs.mkdtempSync('/tmp/gate-cli-');
