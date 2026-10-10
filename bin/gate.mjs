@@ -50,7 +50,7 @@ if (cmd === 'check') {
   const { baselineUpdates: _b, ...gOut } = g;
   const fin = recordRun(root, state, g, 'check');
   const history = readHistory(root);
-  const never = neverFailedAcs(history, contract.acs);
+  const never = neverFailedAcs(history, contract.acs, 2, g.stamp);
   const failedActions = (g.results ?? []).filter((r) => r.status !== 'passed').map((r) => {
     const ac = contract.acs.find((x) => x.id === r.id);
     return ac ? { id: ac.id, statement: ac.statement, check: ac.check, expected: ac.expected } : { id: r.id };

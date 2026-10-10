@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { preflightChecks, neverFailedAcs } from '../lib/ledger.js';
+import { preflightChecks, neverFailedAcs, recordRun, readHistory } from '../lib/ledger.js';
 
 // ── 预检 lint ─────────────────────────────────────────────────────────
 const warnings = preflightChecks(`objective: x
@@ -83,7 +83,6 @@ assert.equal(st.history.length, 2);
 console.log('✓ gate.mjs CLI: preflight / check(记账+failedActions+neverFailed) / status');
 
 // ── 度量纪律:基线不许被失败观测拉低 / 契约盖戳隔离 ───────────────────────
-const { recordRun } = await import('../lib/ledger.js');
 const root2 = fs.mkdtempSync('/tmp/ledger-discipline-');
 const mk = (over = {}) => ({ falseCompletes: 0, digests: {}, baselines: {}, bestScore: null, ...over });
 
@@ -102,5 +101,23 @@ recordRun(root2, md, { code: 'no-go', score: 0.25, stamp: 'S2', results: [{ id: 
 assert.equal(md.baselines['AC-1'], 8, 'contract edit must NOT wipe baselines (refinement keeps history)');
 assert.equal(md.bestScore, 1, 'bestScore (max score) persists across contract edits');
 console.log('✓ metric continuity: contract edits keep history');
+
+// 3) 轮次按实验(loop)计;neverFailed 按契约盖戳隔离
+const root3 = fs.mkdtempSync('/tmp/ledger-rounds-');
+fs.mkdirSync(path.join(root3, '.goal-gate'));
+fs.writeFileSync(path.join(root3, '.goal-gate', 'loop.json'), JSON.stringify({ createdAt: 'T1', maxRounds: 1 }));
+let st3 = mk();
+const run1 = recordRun(root3, st3, { code: 'no-go', score: 0.5, stamp: 'S1', results: [] }, 'check');
+assert.equal(run1.round, 1, 'loop T1 round 1');
+const run2 = recordRun(root3, st3, { code: 'no-go', score: 0.5, stamp: 'S1', results: [] }, 'check');
+assert.equal(run2.round, 2, 'loop T1 round 2');
+assert.equal(run2.roundsExhausted, true, 'T1 budget 1 exhausted at round 2');
+fs.writeFileSync(path.join(root3, '.goal-gate', 'loop.json'), JSON.stringify({ createdAt: 'T2', maxRounds: 3 }));
+const run3 = recordRun(root3, st3, { code: 'go', score: 1, stamp: 'S2', results: [] }, 'check');
+assert.equal(run3.round, 1, 'NEW loop T2 restarts round counting');
+assert.equal(run3.roundsExhausted, false, 'T2 budget fresh');
+const h3 = readHistory(root3);
+assert.deepEqual(neverFailedAcs(h3, [{ id: 'AC-1' }, { id: 'AC-2' }], 2, 'S2'), [], 'stamp S2 has <2 runs -> no never-failed report');
+console.log('✓ loop-scoped rounds + stamp-scoped neverFailed');
 
 console.log('\nAll ledger tests passed.');
