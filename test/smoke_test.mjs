@@ -117,6 +117,17 @@ const parsed2 = parseContract('objective: x\ndeliverable: dist/app.html\nAC-1 | 
 assert.equal(parsed2.deliverable, 'dist/app.html', 'deliverable declaration parsed');
 console.log('✓ evidence binding: digest match / mismatch voided / back-compat / deliverable parsed');
 
+// judged 质量分进指标管道:score 行被提取、归一,可配 delta 逐轮逼优
+const qs = `objective: 质量分
+AC-1 | 质量评审 | check: \`echo 'VERDICT: PASS'; echo 'score: 7'; echo 'artifact: ev.txt'; echo 'digest: sha256:${goodDigest}'\` | probe: \`true\` | expected: judged
+`;
+const q1 = runGate(qs, { cwd: dir });
+const qKey = metricKey(parseContract(qs).acs[0]);
+assert.equal(q1.results[0].status, 'passed', 'judged with evidence passes');
+assert.equal(q1.baselineUpdates[qKey], 0.7, 'judged score extracted & normalized (7 -> 0.7) into metrics');
+assert.equal(q1.results[0].value, 0.7, 'score surfaces as the AC value');
+console.log('✓ judged quality score enters the metric pipeline (delta-able)');
+
 // 假完成计数
 assert.equal(falseCompleteRule(1), 'OK');
 assert.equal(falseCompleteRule(2), 'BLOCKED');

@@ -45,6 +45,12 @@ description: >
   回退，先修回退）、trend（近 5 轮）、failedActions（逐条 {id, statement, check,
   expected}，直接可转 repair 任务）。unverifiable 比例 > 1/3 整门控回 NO-GO。
 
+  【质量门槛与自优化(right metric 的牙齿)】"最逼真/最优质"类目标不许停在"刚好过检":
+  judged 评审结论必须带 `score: <0..1>` 质量分,分数进指标管道;契约加一条质量目标 AC
+  (如 `check: \`cat 评审结论\` | metric: \`score: ([0-9.]+)\` | expected: >=0.85`),
+  不达门槛不许 GO;追求逐轮改善时用 `baseline: delta`(每轮必须更好,否则判 failed)。
+  轮次的退出条件 = 检查全过 **且** 质量达标;全过但质量不足 → 继续迭代(qualityActions:
+  指出"哪里最不像/最差"并转成修复任务)。
   【循环驱动兜底(重要)】恢复会话可能拿不到 goal_gate_* 工具表(实测)——循环必须始终
   可驱动:任何会话用 bash 跑 `bin/gate.mjs check --cwd <工作区>`(绝对路径 node),
   输出与 goal_gate_check 同构(score/round/failedActions/neverFailed/preflight)且记同一本账。
