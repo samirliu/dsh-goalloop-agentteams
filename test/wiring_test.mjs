@@ -194,6 +194,29 @@ assert.equal(loopRes.tasks.length, 2);
 assert.ok(loopRes.protocol.length >= 6, 'loop protocol returned');
 console.log('✓ [10] goal_loop_at: contract + loop.json +', loopRes.tasks.length, 'tasks + protocol');
 
+// ── [10b] 回归：output schema 与返回值不得漂移 ─────────────────────────────────
+// 缺陷史:preflight 加进了 startLoop 返回值,但 schema 没补 → 真实 harness 校验
+// (additionalProperties:false)把整个输出拒掉,工具明明做成了却报 invalid output。
+// 这里把"返回值 ⊆ 声明字段"钉成不变量,任何未声明字段都会被测试抓住。
+{
+  // 独立沙箱:先 loop 建契约,再逐工具执行,账本只落在这个目录
+  const iso = fs.mkdtempSync('/tmp/goal-gate-wiring10b-');
+  const isoAgent = { session: { header: { cwd: iso } } };
+  const isoExec = { agent: isoAgent };
+  const loop2 = registeredTools.find(t => t.name === 'goal_loop_at');
+  const loop2Res = await loop2.execute({ objective: 'schema 对齐检查', acs: ['AC 存在'] }, isoExec);
+  const samples = [['goal_loop_at', loop2Res],
+    ['goal_gate_check', await registeredTools.find(t => t.name === 'goal_gate_check').execute({}, isoExec)],
+    ['goal_gate_init', await registeredTools.find(t => t.name === 'goal_gate_init').execute({}, isoExec)]];
+  for (const [name, res] of samples) {
+    const declared = new Set(Object.keys(registeredTools.find(t => t.name === name).output?.schema?.properties ?? {}));
+    for (const k of Object.keys(res)) {
+      assert.ok(declared.has(k), `${name} returns undeclared key '${k}' — harness output validation will reject the whole call`);
+    }
+  }
+  console.log('✓ [10b] returned keys ⊆ declared schema keys (all tools, live-return sampling)');
+}
+
 // ── /goal-loop-at 命令（handler 形状 + followup 递协议给 agent）───────────────
 const work5 = fs.mkdtempSync('/tmp/goal-gate-wiring5-');
 const followups = [];
