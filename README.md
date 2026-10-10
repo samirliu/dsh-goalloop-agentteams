@@ -6,9 +6,18 @@ Contract-first acceptance criteria, a gate that **re-runs every check itself** (
 
 **Trigger the loop:** `/goal-loop-at <objective>` (or the `goal_loop_at` tool) writes the contract + round config, returns the loop protocol and suggested Agent Teams tasks derived from each AC. Iterate via `goal_gate_check` (score, trend, failedActions), claim completion only on GO.
 
-中文说明见 [README.zh.md](README.zh.md)。
+## 中文简介
 
-## Why
+**dsh-goalloop-agentteams** 是面向 DeepSeek Harness 的**确定性目标门控 + 目标闭环**插件：
+
+- **判命面**：契约先行的 AC 文法，门控自己重跑每条 check（零模型参与），verdict 绑定文件树摘要（文件改动即作废过审结论），目标级假完成 2 次即 `BLOCKED` 等人——模型永远不能自我宣布完成。
+- **闭环面**：`/goal-loop-at <目标>` 一条命令触发完整 agentic loop——写契约骨架 + 轮次预算（`loop.json`）+ 循环协议 + 从每条 AC 派生的 Agent Teams 建议任务；`goal_gate_check` 输出 `score`/趋势/`failedActions`，**score 不得回退**，NO-GO 的失败项直接变 repair 任务。
+- **评估面**：`maximize` 按基线判定（`baseline: delta` 严格改善 / `abs` 不回退）、`judged` 以 probe 为确定性判官、`metric:` 正则提取指标、Goodhart 三防线（unverifiable ≠ passed / 判官缺失 / 基线未建）。
+- **分级治理**：`update_goal` 完成声明永远硬拦；任务级声明按 `exit: strict|goal-only` 分级，多任务 Agent Teams 循环不会死锁。
+
+完整中文文档见 [README.zh.md](README.zh.md)。
+
+## Why / 为什么需要它
 
 DSH already has two layers of completion judgement — but neither is a deterministic gate:
 
@@ -19,7 +28,7 @@ DSH already has two layers of completion judgement — but neither is a determin
 
 `dsh-goalloop-agentteams` is the hard floor underneath both: it re-runs every AC's `check` command itself, binds verdicts to a tree digest, and counts caught false-completes — two catches → `BLOCKED`. Deterministic gate = floor, LLM judge = semantic layer, quality kinds = step contract. Stacked, they close the loop.
 
-## Contract grammar
+## Contract grammar / 契约文法
 
 ```
 objective: <one-line goal>
@@ -37,7 +46,7 @@ Every `check` must be a **named, failable command** — include the environment 
 - `judged` uses the `probe` as a deterministic judge — the probe's exit code *is* the verdict. Without a probe, or when the judge command is missing (exit 127), `judged` is `unverifiable` (a broken verifier is not a failing verdict).
 - Contract lives at `.goal-gate/goal.md` in the workspace root.
 
-## Gate & interception
+## Gate & interception / 门控与拦截
 
 `goal_gate_check` re-runs every check itself:
 
@@ -48,7 +57,7 @@ Every `check` must be a **named, failable command** — include the environment 
   - `exit: goal-only` (what `goal_loop_at` writes): mid-loop task progress passes (step-level truth belongs to quality-kind contracts); GO binds a digest, NO-GO is recorded as `partialCompletes` only. Without this split, every multi-task team deadlocks: a member finishing its own task is denied because teammates' ACs are still failing
   - `BLOCKED` (two caught false goal-completes) freezes every completion claim
 
-## Goal loop (right loop / right eval / right metric)
+## Goal loop / 目标闭环（right loop · right eval · right metric）
 
 `/goal-loop-at <objective>` (slash command) or `goal_loop_at` (tool) starts the loop:
 
@@ -59,7 +68,7 @@ Every `check` must be a **named, failable command** — include the environment 
 
 Self-optimization rule: `score` must not regress (`regression: true` → fix the regression first); `maximize` ACs with `baseline: delta` require strict metric improvement round over round.
 
-## Three hard constraints (measured, not assumed)
+## Three hard constraints / 三条硬约束（实测所得）
 
 From an ordering probe (`tools/pre-execute` waterfall semantics, real deny-return shape):
 
@@ -67,15 +76,15 @@ From an ordering probe (`tools/pre-execute` waterfall semantics, real deny-retur
 2. **`deny` and `throw` are different propagation mechanisms and must not be mixed.** `dsh-agent-teams`'s quality-gate rejects by `throw`ing, which blows through the waterfall and hands the caller an exception; the task board returns a structured `{kind:'deny'}`. This plugin always uses structured `deny` — never `throw` — so its error path stays distinct from quality-gate exceptions.
 3. **Digest binding must be self-built.** DSH has no verdict↔file-tree binding anywhere (only state-key hashes). This plugin stores the digest and re-computes it before denying, so a passing verdict is voided automatically when the tree moves (R7).
 
-## R7 digest caveat (fixed)
+## R7 digest caveat / R7 摘要的坑（已修）
 
 If `treeDigest` walks the ledger directory, writing the ledger changes the digest → the gate spuriously invalidates its own verdicts and R1's false-complete counter never reaches 2. Fixed: the digest excludes `.goal-gate`, `node_modules`, `.git`.
 
-## Interpreter constraint
+## Interpreter constraint / 解释器约束
 
 The DSH Host bundles Node 24.21.0 (`runtime/primary-runtime/dependencies/node/bin/node`). A `node` on `PATH` may be broken (e.g. SIGKILL on launch). Plugins run inside the Host runtime — **never write a bare `node`** in a gate script; if you must spawn a child, resolve it via `config.node ?? process.execPath` (the pattern `dsh-skill-office` uses).
 
-## Install
+## Install / 安装
 
 ```sh
 dsh plugin add dsh-goalloop-agentteams
@@ -83,7 +92,7 @@ dsh plugin add dsh-goalloop-agentteams
 
 Or from source: the repo declares `dsh.bundle` in `package.json` with a `cordis.patch.yml` beside it, so `dsh plugin add` picks it up directly. `apply(ctx, config)` registers the `goal_loop_at` / `goal_gate_init` / `goal_gate_check` tools, the `/goal-loop-at` / `/goal-gate` commands, and the `tools/pre-execute` listener.
 
-## Tests
+## Tests / 测试
 
 ```sh
 node test/run-local.mjs
@@ -91,7 +100,7 @@ node test/run-local.mjs
 
 The real `@deepseek-ai/dsh-tools` lives inside the DSH Host and is not importable outside it, so the runner injects a minimal `defineTool` shim from `test/fixtures/dsh-tools-shim` for the duration of the run.
 
-## Mapping to goal-loop
+## Mapping to goal-loop / 与 goal-loop 的对应
 
 | goal-loop | This plugin |
 |---|---|
@@ -103,6 +112,6 @@ The real `@deepseek-ai/dsh-tools` lives inside the DSH Host and is not importabl
 | metric trajectory / self-optimization | `history.jsonl` + `score` / `bestScore` / `regression` |
 | `goal_team.sh` portable layer + dual ledger | **dropped** — use native Agent Teams + task board |
 
-## License
+## License / 许可
 
 MIT

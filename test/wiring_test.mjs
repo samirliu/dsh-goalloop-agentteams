@@ -278,4 +278,20 @@ assert.equal(hist15.length, 3, 'all three evaluations recorded in history');
 assert.equal(JSON.parse(hist15[0]).trigger, 'task-claim');
 console.log('✓ [15] round budget scope: milestone claims do not consume optimization rounds');
 
+// ── rc=3 BLOCKED：假完成 ≥ 2 后 goal_gate_check 如实报 blocked ──────────────
+const work16 = fs.mkdtempSync('/tmp/goal-gate-wiring16-');
+const agent16 = { session: { header: { cwd: work16 } } };
+fs.writeFileSync(path.join(work16, 'a.txt'), 'x\n');
+fs.mkdirSync(path.join(work16, '.goal-gate'), { recursive: true });
+fs.writeFileSync(path.join(work16, '.goal-gate', 'goal.md'), `objective: blocked 上报
+AC-1 | 不过 | check: \`test -f NOPE\` | expected: exit=0
+`);
+await listen({ name: 'update_goal', arguments: { action: 'complete' }, agent: agent16 }, next);
+await listen({ name: 'update_goal', arguments: { action: 'complete' }, agent: agent16 }, next);
+const r16 = await checkTool.execute({}, { agent: agent16 });
+assert.equal(r16.rc, 3, 'goal_gate_check reports rc=3 in BLOCKED state');
+assert.equal(r16.code, 'blocked');
+assert.match(r16.reason, /false-completes=2/, 'reason names the false-complete count');
+console.log('✓ [16] goal_gate_check rc=3 BLOCKED matches the documented contract');
+
 console.log('\nAll wiring smoke tests passed.');

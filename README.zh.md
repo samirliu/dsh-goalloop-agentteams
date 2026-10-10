@@ -79,7 +79,7 @@ DSH Host 自带 Node 24.21.0（`runtime/primary-runtime/dependencies/node/bin/no
 // package.json
 { "name": "dsh-goalloop-agentteams", "type": "module",
   "main": "lib/index.js",
-  "dsh": { "engines": { "dsh": ">=0.2.0-rc.2" }, "bundle": { "patch": "./cordis.patch.yml" } } }
+  "dsh": { "bundle": { "patch": "./cordis.patch.yml" } } }
 ```
 
 ```yaml
@@ -96,8 +96,9 @@ DSH Host 自带 Node 24.21.0（`runtime/primary-runtime/dependencies/node/bin/no
 
 ```bash
 NODE=/Applications/DeepSeek\ Harness.app/Contents/Resources/runtime/primary-runtime/dependencies/node/bin/node
-$NODE test/smoke_test.mjs   # core 契约解析 / 门控 rc / 判定 / 摘要
-$NODE test/wiring_test.mjs  # 注册路径 + 双枝拦截 + R7 stale + R1 BLOCKED
+$NODE test/run-local.mjs    # 一键全量（smoke + wiring + loadsafe）
+$NODE test/smoke_test.mjs   # core 契约解析 / 门控 rc / 判定 / 指标 / 摘要
+$NODE test/wiring_test.mjs  # 注册路径 + 分级治理拦截 + R7 stale + R1 BLOCKED + 轮次口径
 ```
 
 > 测试用 `node_modules/@deepseek-ai/dsh-tools/` 里的最小 shim 模拟 `defineTool`（真实包在 Host 内，Host 外不可 import）。
