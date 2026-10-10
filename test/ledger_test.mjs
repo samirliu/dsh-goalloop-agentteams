@@ -29,6 +29,25 @@ assert.deepEqual(neverFailedAcs(hist, acs), ['AC-1'], 'AC-1 never failed across 
 assert.deepEqual(neverFailedAcs(hist.slice(1), acs), [], 'below minRuns -> no warning');
 console.log('✓ neverFailedAcs: catches never-failed ACs, respects minRuns');
 
+// 交付物覆盖 / 运行时面 / judged 绑定提醒
+const w2 = preflightChecks(`objective: x
+deliverable: dist/app.html
+AC-1 | 静态 | check: \`test -f dist/app.html\` | expected: exit=0
+AC-2 | 评审 | check: \`echo ok\` | probe: \`test -f dist/app.html\` | expected: judged
+`);
+assert.ok(w2.some((w) => w.kind === 'no-runtime-ac'), 'all-static contract flagged (no runtime acceptance)');
+const w3 = preflightChecks(`objective: x
+AC-1 | 评审 | check: \`echo ok\` | probe: \`test -f x\` | expected: judged
+`);
+assert.ok(w3.some((w) => w.kind === 'judged-without-deliverable'), 'judged without deliverable declaration flagged');
+const w4 = preflightChecks(`objective: x
+deliverable: dist/app.html
+AC-1 | 不碰本体 | check: \`test -f other.txt\` | expected: exit=0
+AC-2 | 运行时 | check: \`node run-app.mjs\` | expected: exit=0
+`);
+assert.ok(w4.some((w) => w.kind === 'deliverable-unverified'), 'deliverable never touched by any check flagged');
+console.log('✓ preflight coverage: no-runtime-ac / judged-without-deliverable / deliverable-unverified');
+
 // ── bash 驱动门控 CLI(恢复会话的循环兜底入口)──────────────────────────
 const root = fs.mkdtempSync('/tmp/gate-cli-');
 fs.writeFileSync(path.join(root, 'a.txt'), 'x\n');
@@ -41,8 +60,9 @@ const cli = path.join(path.dirname(new URL(import.meta.url).pathname), '..', 'bi
 const run = (args) => spawnSync(process.execPath, [cli, ...args, '--cwd', root], { encoding: 'utf8' });
 
 const pf = run(['preflight']);
-assert.equal(pf.status, 0, 'healthy contract passes preflight');
-assert.deepEqual(JSON.parse(pf.stdout).warnings, []);
+assert.equal(pf.status, 1, 'all-static fixture contract is correctly flagged by the new discipline');
+const pfWarnings = JSON.parse(pf.stdout).warnings;
+assert.ok(pfWarnings.some((w) => w.kind === 'no-runtime-ac'), 'fixture (fs checks only) gets no-runtime-ac warning');
 
 const c1 = JSON.parse(run(['check']).stdout);
 assert.equal(c1.code, 'no-go');
@@ -77,11 +97,10 @@ recordRun(root2, md, { code: 'go', score: 1, stamp: 'S1', results: [{ id: 'AC-1'
 assert.equal(md.baselines['AC-1'], 8, 'passed observation advances baseline');
 console.log('✓ baseline discipline: establish / no-slide-on-fail / advance-on-pass');
 
-// 2) 契约盖戳隔离:换契约 = 指标状态重置(旧契约 grandfather)
-assert.equal(md.stamp, 'S1');
-recordRun(root2, md, { code: 'no-go', score: 0.5, stamp: 'S2', results: [{ id: 'AC-1', status: 'failed' }], baselineUpdates: {} }, 'check');
-assert.deepEqual(md.baselines, {}, 'contract change resets baselines (AC ids collide across contracts)');
-assert.equal(md.bestScore, 0.5, 'bestScore reset then re-established');
-console.log('✓ stamp isolation: contract change resets metric state');
+// 2) case 边界 = loop 换代才重置 bestScore;契约微调不清史
+recordRun(root2, md, { code: 'no-go', score: 0.25, stamp: 'S2', results: [{ id: 'AC-1', status: 'failed' }], baselineUpdates: {} }, 'check');
+assert.equal(md.baselines['AC-1'], 8, 'contract edit must NOT wipe baselines (refinement keeps history)');
+assert.equal(md.bestScore, 1, 'bestScore (max score) persists across contract edits');
+console.log('✓ metric continuity: contract edits keep history');
 
 console.log('\nAll ledger tests passed.');

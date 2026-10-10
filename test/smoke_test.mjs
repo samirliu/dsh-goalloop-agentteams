@@ -96,6 +96,26 @@ assert.equal(byId['AC-3'], 'unverifiable', 'judged without judge -> unverifiable
 assert.equal(byId['AC-4'], 'unverifiable', 'missing judge command -> unverifiable (not failed)');
 console.log('✓ runGate: judged rows use probe as deterministic judge');
 
+// judged 证据摘要绑定:评审引用的 artifact+digest 与现状不一致 → 作废(unverifiable)
+import { createHash } from 'node:crypto';
+const evFile = path.join(dir, 'ev.txt');
+fs.writeFileSync(evFile, 'evidence body\n');
+const goodDigest = createHash('sha256').update(fs.readFileSync(evFile)).digest('hex');
+const evContract = (digest) => `objective: 证据绑定
+AC-1 | 评审 | check: \`echo artifact: ev.txt; echo digest: sha256:${digest}\` | probe: \`test -f ev.txt\` | expected: judged
+`;
+const ev1 = runGate(evContract(goodDigest), { cwd: dir });
+assert.equal(ev1.results[0].status, 'passed', 'matching digest keeps the verdict');
+const ev2 = runGate(evContract('0'.repeat(64)), { cwd: dir });
+assert.equal(ev2.results[0].status, 'unverifiable', 'stale/mismatched evidence digest voids the verdict');
+const ev3 = runGate(`objective: 证据绑定
+AC-1 | 评审 | check: \`echo verdict ok\` | probe: \`test -f ev.txt\` | expected: judged
+`, { cwd: dir });
+assert.equal(ev3.results[0].status, 'passed', 'no binding lines: backward-compatible');
+const parsed2 = parseContract('objective: x\ndeliverable: dist/app.html\nAC-1 | y | check: `true` | expected: exit=0');
+assert.equal(parsed2.deliverable, 'dist/app.html', 'deliverable declaration parsed');
+console.log('✓ evidence binding: digest match / mismatch voided / back-compat / deliverable parsed');
+
 // 假完成计数
 assert.equal(falseCompleteRule(1), 'OK');
 assert.equal(falseCompleteRule(2), 'BLOCKED');
