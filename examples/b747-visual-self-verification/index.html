@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>波音 747-400 · Three.js 最逼真重建(含视觉自验证)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #e9eef6; font-family: "SF Pro", "PingFang SC", system-ui, sans-serif; }
+  #app { position: fixed; inset: 0; }
+  .panel { position: fixed; color: #1c2740; background: rgba(255,255,255,.82); backdrop-filter: blur(12px);
+           border: 1px solid rgba(30,50,90,.14); border-radius: 14px; padding: 16px 18px; box-shadow: 0 10px 30px rgba(30,50,90,.12); }
+  #title { top: 20px; left: 20px; max-width: 340px; }
+  #title h1 { margin: 0 0 6px; font-size: 19px; letter-spacing: .3px; }
+  #title p { margin: 0; font-size: 12.5px; line-height: 1.7; color: #4a5a76; }
+  #specs { bottom: 20px; left: 20px; font-size: 12px; line-height: 1.9; }
+  #specs b { color: #ffd166; font-weight: 600; }
+  #views { top: 20px; right: 20px; display: flex; flex-direction: column; gap: 8px; }
+  #views button { all: unset; cursor: pointer; text-align: center; padding: 9px 16px; border-radius: 10px;
+                  background: rgba(30,60,120,.08); color: #1c2740; font-size: 13px; border: 1px solid rgba(30,50,90,.16); }
+  #views button:hover { background: rgba(80,130,230,.22); }
+  #views button.on { background: #3b82f6; border-color: #3b82f6; }
+  #hint { bottom: 20px; right: 20px; font-size: 11.5px; color: #5a6b88; max-width: 260px; line-height: 1.8; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div class="panel" id="title">
+  <h1>Boeing 747-400 · 最逼真重建</h1>
+  <p>THREE.js 渲染 · 几何按 747-400 真机规格放样(70.6 × 64.4 × 19.4 m)<br>
+     自我验证系统:几何实测 8 项 + 四视角投影 + 视觉评审,与本场景共享同一份几何内核。</p>
+</div>
+<div class="panel" id="specs">
+  <div>机长 <b>70.6 m</b> ｜ 翼展 <b>64.4 m</b> ｜ 全高 <b>19.4 m</b></div>
+  <div>发动机 <b>4 ×</b> ｜ 后掠角 <b>37.5°</b> ｜ 上反角 <b>7°</b></div>
+  <div>驼峰(上层甲板)<b>24 m</b> ｜ 起落架 <b>18 轮</b></div>
+  <div>三角面 <b id="tris">—</b> ｜ 顶点 <b id="verts">—</b></div>
+</div>
+<div class="panel" id="views">
+  <button data-view="quarter" class="on">3/4 视角</button>
+  <button data-view="side">侧视</button>
+  <button data-view="front">正视</button>
+  <button data-view="top">俯视</button>
+  <button data-view="spin">自动环绕</button>
+</div>
+<div class="panel" id="hint">拖拽旋转 · 滚轮缩放 · 右键平移<br>基于 b747/geometry.js(与验证器同源)</div>
+
+<script type="module">
+import * as THREE from './vendor/three.module.js';
+import { TRIANGLES, TRI_COLORS, SPECS, STATS } from './geometry.js';
+
+document.getElementById('tris').textContent = STATS.triangles.toLocaleString();
+document.getElementById('verts').textContent = STATS.vertices.toLocaleString();
+
+// ── 场景 ─────────────────────────────────────────────────────────
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0xe9eef6);
+scene.fog = new THREE.Fog(0xe9eef6, 320, 700);
+
+const camera = new THREE.PerspectiveCamera(42, innerWidth / innerHeight, 0.5, 1200);
+camera.position.set(78, 34, 88);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(innerWidth, innerHeight);
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+document.getElementById('app').appendChild(renderer.domElement);
+
+// 光照:半球 + 主方向光(投影)+ 侧逆光
+scene.add(new THREE.HemisphereLight(0xffffff, 0x8fa3bd, 1.35));
+scene.add(new THREE.AmbientLight(0xffffff, 0.45));
+const key = new THREE.DirectionalLight(0xfff2e0, 2.1);
+key.position.set(70, 90, 60);
+key.castShadow = true;
+key.shadow.mapSize.set(2048, 2048);
+key.shadow.camera.left = key.shadow.camera.bottom = -90;
+key.shadow.camera.right = key.shadow.camera.top = 90;
+scene.add(key);
+const rim = new THREE.DirectionalLight(0x7fa8ff, 1.1);
+rim.position.set(-80, 40, -70);
+scene.add(rim);
+
+// 地面
+const ground = new THREE.Mesh(
+  new THREE.CircleGeometry(320, 64),
+  new THREE.MeshStandardMaterial({ color: 0xd7dee9, roughness: 0.96, metalness: 0 }),
+);
+ground.rotation.x = -Math.PI / 2;
+ground.position.y = -6.7;
+ground.receiveShadow = true;
+scene.add(ground);
+const grid = new THREE.GridHelper(400, 80, 0xb8c4d4, 0xcdd6e2);
+grid.position.y = -6.68;
+scene.add(grid);
+
+// ── 747 网格(共享几何内核)──────────────────────────────────────
+const geo = new THREE.BufferGeometry();
+geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(TRIANGLES.flat()), 3));
+geo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(TRI_COLORS.flat()), 3));
+geo.computeVertexNormals();
+const mat = new THREE.MeshStandardMaterial({
+  vertexColors: true, roughness: 0.55, metalness: 0.18,
+  side: THREE.DoubleSide,        // 绕序不完全一致,双面渲染保证全部可见且按可见侧受光
+  flatShading: true,             // 面法线自动翻转,消除暗面
+});
+const jet = new THREE.Mesh(geo, mat);
+jet.castShadow = true;
+jet.receiveShadow = true;
+scene.add(jet);
+
+// ── 轨道控制(轻量自实现)────────────────────────────────────────
+const target = new THREE.Vector3(0, 2, 0);
+let theta = 0.72, phi = 1.22, radius = 128, spin = false;
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+function apply() {
+  camera.position.set(
+    target.x + radius * Math.sin(phi) * Math.cos(theta),
+    target.y + radius * Math.cos(phi),
+    target.z + radius * Math.sin(phi) * Math.sin(theta),
+  );
+  camera.lookAt(target);
+}
+apply();
+let drag = null;
+renderer.domElement.addEventListener('pointerdown', (e) => { drag = { x: e.clientX, y: e.clientY, b: e.button }; spin = false; });
+addEventListener('pointerup', () => drag = null);
+addEventListener('pointermove', (e) => {
+  if (!drag) return;
+  const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+  drag.x = e.clientX; drag.y = e.clientY;
+  if (drag.b === 2) {
+    const right = new THREE.Vector3().setFromMatrixColumn(camera.matrix, 0);
+    target.addScaledVector(right, -dx * 0.06).y += dy * 0.06;
+  } else {
+    theta -= dx * 0.0042;
+    phi = clamp(phi - dy * 0.0042, 0.12, Math.PI - 0.12);
+  }
+  apply();
+});
+addEventListener('wheel', (e) => { radius = clamp(radius * (1 + e.deltaY * 0.0009), 30, 320); apply(); }, { passive: true });
+addEventListener('contextmenu', (e) => e.preventDefault());
+
+// 视角预设
+const VIEWS = {
+  quarter: [0.72, 1.22, 128], side: [Math.PI / 2, Math.PI / 2, 120],
+  front: [0, Math.PI / 2, 110], top: [Math.PI / 2, 0.12, 130],
+};
+for (const btn of document.querySelectorAll('#views button')) {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('#views button').forEach((b) => b.classList.remove('on'));
+    btn.classList.add('on');
+    if (btn.dataset.view === 'spin') { spin = !spin; btn.classList.toggle('on', spin); return; }
+    [theta, phi, radius] = VIEWS[btn.dataset.view];
+    apply();
+  });
+}
+
+// ── 渲染循环 ─────────────────────────────────────────────────────
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+renderer.setAnimationLoop(() => {
+  if (spin) { theta += 0.0016; apply(); }
+  renderer.render(scene, camera);
+});
+</script>
+</body>
+</html>
