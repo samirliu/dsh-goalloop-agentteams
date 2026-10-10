@@ -9,7 +9,7 @@ const GENERIC = ['lib', 'bin', 'skills', 'test', 'docs', 'README.md', 'README.zh
 const FORBIDDEN = ['b747', '波音', '747-400'];
 
 const out = execSync(
-  `grep -rniE "${FORBIDDEN.join('|')}" ${GENERIC.join(' ')} 2>/dev/null || true`,
+  `grep -rniE "${FORBIDDEN.join('|')}" --exclude=purity_test.mjs ${GENERIC.join(' ')} 2>/dev/null || true`,
   { cwd: root, encoding: 'utf8' },
 ).trim();
 
