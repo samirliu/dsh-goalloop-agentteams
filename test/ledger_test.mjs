@@ -62,4 +62,26 @@ assert.equal(st.falseCompletes, 0);
 assert.equal(st.history.length, 2);
 console.log('✓ gate.mjs CLI: preflight / check(记账+failedActions+neverFailed) / status');
 
+// ── 度量纪律:基线不许被失败观测拉低 / 契约盖戳隔离 ───────────────────────
+const { recordRun } = await import('../lib/ledger.js');
+const root2 = fs.mkdtempSync('/tmp/ledger-discipline-');
+const mk = (over = {}) => ({ falseCompletes: 0, digests: {}, baselines: {}, bestScore: null, ...over });
+
+// 1) 失败观测不推进基线;通过才推进;首次观测建档
+let md = mk();
+recordRun(root2, md, { code: 'no-go', score: 0.5, stamp: 'S1', results: [{ id: 'AC-1', status: 'failed' }], baselineUpdates: { 'AC-1': 5 } }, 'check');
+assert.equal(md.baselines['AC-1'], 5, 'first observation establishes baseline');
+recordRun(root2, md, { code: 'no-go', score: 0.5, stamp: 'S1', results: [{ id: 'AC-1', status: 'failed' }], baselineUpdates: { 'AC-1': 2 } }, 'check');
+assert.equal(md.baselines['AC-1'], 5, 'failed observation must NOT slide baseline down (Goodhart)');
+recordRun(root2, md, { code: 'go', score: 1, stamp: 'S1', results: [{ id: 'AC-1', status: 'passed' }], baselineUpdates: { 'AC-1': 8 } }, 'check');
+assert.equal(md.baselines['AC-1'], 8, 'passed observation advances baseline');
+console.log('✓ baseline discipline: establish / no-slide-on-fail / advance-on-pass');
+
+// 2) 契约盖戳隔离:换契约 = 指标状态重置(旧契约 grandfather)
+assert.equal(md.stamp, 'S1');
+recordRun(root2, md, { code: 'no-go', score: 0.5, stamp: 'S2', results: [{ id: 'AC-1', status: 'failed' }], baselineUpdates: {} }, 'check');
+assert.deepEqual(md.baselines, {}, 'contract change resets baselines (AC ids collide across contracts)');
+assert.equal(md.bestScore, 0.5, 'bestScore reset then re-established');
+console.log('✓ stamp isolation: contract change resets metric state');
+
 console.log('\nAll ledger tests passed.');
