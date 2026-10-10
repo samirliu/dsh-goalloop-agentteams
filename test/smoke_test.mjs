@@ -1,6 +1,6 @@
 // smoke_test.mjs — core.js 冒烟：契约解析、盖戳、门控 rc、假完成计数、判定边界、指标、摘要
 import assert from 'node:assert/strict';
-import { runGate, parseContract, contractStamp, treeDigest, falseCompleteRule, judgeExpected, extractMetric, CONTRACT_TEMPLATE } from '../lib/core.js';
+import { runGate, parseContract, contractStamp, treeDigest, falseCompleteRule, judgeExpected, extractMetric, metricKey, CONTRACT_TEMPLATE } from '../lib/core.js';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -70,13 +70,14 @@ console.log('✓ judgeExpected: judged via deterministic judge (probe) covered')
 const metricContract = `objective: 指标闭环
 AC-1 | 行数要改善 | check: \`wc -l < a.txt\` | metric: \`\\s*(\\d+)\` | baseline: delta | expected: maximize
 `;
+const mKey = metricKey(parseContract(metricContract).acs[0]);
 const r1 = runGate(metricContract, { cwd: dir });
 assert.equal(r1.results[0].status, 'unverifiable', 'first run: baseline not established');
-assert.equal(r1.baselineUpdates['AC-1'], 1, 'first run records metric value');
-const r2 = runGate(metricContract, { cwd: dir, baselines: { 'AC-1': 1 } });
+assert.equal(r1.baselineUpdates[mKey], 1, 'first run records metric value (keyed by metric identity)');
+const r2 = runGate(metricContract, { cwd: dir, baselines: { [mKey]: 1 } });
 assert.equal(r2.results[0].status, 'failed', 'second run: 1 is not > 1 (delta flat)');
 fs.appendFileSync(path.join(dir, 'a.txt'), 'more\nlines\n');
-const r3 = runGate(metricContract, { cwd: dir, baselines: { 'AC-1': 1 } });
+const r3 = runGate(metricContract, { cwd: dir, baselines: { [mKey]: 1 } });
 assert.equal(r3.results[0].status, 'passed', 'third run: 3 > 1 (delta improves)');
 assert.equal(r3.score, 1);
 console.log('✓ runGate: baseline cycle (unverifiable -> failed -> passed), score works');
@@ -90,11 +91,11 @@ AC-4 | 判官缺失 | check: \`echo evidence\` | probe: \`definitely-missing-cmd
 `;
 const j = runGate(judgedContract, { cwd: dir });
 const byId = Object.fromEntries(j.results.map(r => [r.id, r.status]));
-assert.equal(byId['AC-1'], 'passed', 'judge probe ok -> passed');
+assert.equal(byId['AC-1'], 'unverifiable', 'judge ok but NO evidence binding -> void (mandatory)');
 assert.equal(byId['AC-2'], 'failed', 'judge probe fails -> failed');
 assert.equal(byId['AC-3'], 'unverifiable', 'judged without judge -> unverifiable');
 assert.equal(byId['AC-4'], 'unverifiable', 'missing judge command -> unverifiable (not failed)');
-console.log('✓ runGate: judged rows use probe as deterministic judge');
+console.log('✓ runGate: judged rows use probe as deterministic judge; evidence binding mandatory');
 
 // judged 证据摘要绑定:评审引用的 artifact+digest 与现状不一致 → 作废(unverifiable)
 import { createHash } from 'node:crypto';
@@ -111,7 +112,7 @@ assert.equal(ev2.results[0].status, 'unverifiable', 'stale/mismatched evidence d
 const ev3 = runGate(`objective: 证据绑定
 AC-1 | 评审 | check: \`echo verdict ok\` | probe: \`test -f ev.txt\` | expected: judged
 `, { cwd: dir });
-assert.equal(ev3.results[0].status, 'passed', 'no binding lines: backward-compatible');
+assert.equal(ev3.results[0].status, 'unverifiable', 'verdict without evidence binding is void (mandatory discipline)');
 const parsed2 = parseContract('objective: x\ndeliverable: dist/app.html\nAC-1 | y | check: `true` | expected: exit=0');
 assert.equal(parsed2.deliverable, 'dist/app.html', 'deliverable declaration parsed');
 console.log('✓ evidence binding: digest match / mismatch voided / back-compat / deliverable parsed');

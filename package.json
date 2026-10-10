@@ -1,6 +1,6 @@
 {
   "name": "dsh-goalloop-agentteams",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Deterministic goal-completion gate + goal loop for DeepSeek Harness: contract-first AC grammar, re-runs every AC check itself (zero model trust), binds verdicts to a tree digest (R7), hard-denies false goal completion at update_goal via tools/pre-execute with a false-complete counter (2 catches -> BLOCKED), scope-aware task-claim handling (exit: strict|goal-only), and drives the agentic loop from /goal-loop-at with score/trend/round metrics (history.jsonl). Ports goal-loop's judging + loop faces onto native Agent Teams + task board.",
   "type": "module",
   "main": "lib/index.js",
