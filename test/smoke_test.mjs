@@ -180,6 +180,10 @@ const unp = runGate('objective: x\nAC-1 | ok | check: `test -d .` | expected: ex
 assert.equal(unp.code, 'state-error', 'unparseable AC line -> refuse to evaluate (fail-closed)');
 assert.match(unp.reason, /AC-2/, 'reason names the offending line');
 console.log('✓ runGate: unparsed AC line -> state-error (silent drop is forbidden)');
+const diag = runGate('objective: diag\nAC-1 | 报错到 stderr | check: `echo reason-on-stderr >&2; exit 1` | expected: exit=0\nAC-2 | ok | check: `test -d .` | expected: exit=0\nAC-3 | ok | check: `test -d .` | expected: exit=0', { cwd: dir });
+assert.match(diag.results[0].stderr ?? '', /reason-on-stderr/, 'failure reason on stderr is captured in results');
+assert.equal(diag.results[0].status, 'failed');
+console.log('✓ runGate: stderr diagnostics captured (fail-loud)');
 
 // 全绿 → GO
 const green = `objective: ok
