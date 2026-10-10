@@ -69,6 +69,11 @@ assert.equal(judgeExpected('maximize', { exitCode: 0, stdout: '85\n' }, { prev: 
 assert.equal(judgeExpected('maximize', { exitCode: 0, stdout: '105\n' }, { prev: 100, baseline: 'delta', tolerance: 0.08 }), 'failed', 'delta: 噪声带内(+5%)不算真改善');
 assert.equal(judgeExpected('maximize', { exitCode: 0, stdout: '115\n' }, { prev: 100, baseline: 'delta', tolerance: 0.08 }), 'passed', 'delta: 超出噪声带(+15%)算真改善');
 console.log('✓ tolerance: abs noise band / abs real regression / delta noise / delta real improvement');
+// delta 饱和诊断:指标封顶后原地踏步必须给出可操作提示
+const sat = runGate('objective: sat\nAC-1 | 封顶指标 | check: `echo 1` | metric: `([0-9.]+)` | baseline: delta | expected: maximize\nAC-2 | ok | check: `test -d .` | expected: exit=0\nAC-3 | ok | check: `test -d .` | expected: exit=0', { cwd: dir, baselines: { [metricKey(parseContract('objective: z\nAC-1 | x | check: `echo 1` | metric: `([0-9.]+)` | baseline: delta | expected: maximize\nAC-2 | y | check: `t` | expected: exit=0\nAC-3 | y | check: `t` | expected: exit=0').acs[0])]: 1 } });
+assert.equal(sat.results[0].status, 'failed', 'saturated delta -> failed');
+assert.match(sat.results[0].why ?? '', /saturated/, 'saturation diagnosed with actionable hint');
+console.log('✓ delta-saturation: diagnosed, not silent');
 
 // judged：无判官 → unverifiable；判官（probe）退出码即结论
 assert.equal(judgeExpected('judged', { exitCode: 0, stdout: '' }), 'unverifiable', 'judged w/o judge is NOT passed');
