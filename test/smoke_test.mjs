@@ -128,6 +128,22 @@ assert.equal(q1.baselineUpdates[qKey], 0.7, 'judged score extracted & normalized
 assert.equal(q1.results[0].value, 0.7, 'score surfaces as the AC value');
 console.log('✓ judged quality score enters the metric pipeline (delta-able)');
 
+// per-AC timeout:短超时击杀慢检查;放宽后放行(30s 缺省不可配的缺陷回归)
+const tSlow = 'AC-1 | 慢检查 | check: `sleep 2` | timeout: 1 | expected: exit=0';
+const t1 = runGate(`objective: timeout
+${tSlow}
+AC-2 | 快检查 | check: \`test -d .\` | expected: exit=0
+AC-3 | 快检查 | check: \`test -d .\` | expected: exit=0`, { cwd: dir });
+assert.equal(t1.results[0].status, 'failed', 'timeout:1 kills a 2s check');
+const tOk = 'AC-1 | 慢检查 | check: `sleep 2` | timeout: 5 | expected: exit=0';
+const t2 = runGate(`objective: timeout
+${tOk}
+AC-2 | 快检查 | check: \`test -d .\` | expected: exit=0
+AC-3 | 快检查 | check: \`test -d .\` | expected: exit=0`, { cwd: dir });
+assert.equal(t2.results[0].status, 'passed', 'timeout:5 lets a 2s check pass');
+assert.equal(parseContract('objective: x\nAC-1 | y | check: `z` | timeout: 45 | expected: exit=0').acs[0].timeout, 45, 'timeout parsed');
+console.log('✓ per-AC timeout: kills slow check / releases with headroom / parsed');
+
 // 假完成计数
 assert.equal(falseCompleteRule(1), 'OK');
 assert.equal(falseCompleteRule(2), 'BLOCKED');

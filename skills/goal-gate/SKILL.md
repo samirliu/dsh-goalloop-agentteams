@@ -26,7 +26,7 @@ description: >
     deliverable: <交付物本体路径>
     [exit: goal-only | strict]（完成声明治理策略，见下）
     AC-N | <yes/no 判定语句> | check: `<命令>` | [probe: `<探针>`] |
-           [metric: `<指标正则，带一个捕获组>`] | [baseline: delta|abs] | expected: <规格>
+           [metric: `<指标正则，带一个捕获组>`] | [baseline: delta|abs] | [timeout: <秒,缺省30>] | expected: <规格>
     规格 = exit=0 | <op><数字>（<=5 >0 =3 …）| maximize | judged
   每条 check 必须真的能失败（环境依赖、空值、错误路径都写进检查里），否则退化成
   永真式。metric 不写则回退"取输出最后一个数字"（输出混有其他数字时务必写 metric）。
