@@ -208,13 +208,49 @@ console.log('✓ [10] goal_loop_at: contract + loop.json +', loopRes.tasks.lengt
   const samples = [['goal_loop_at', loop2Res],
     ['goal_gate_check', await registeredTools.find(t => t.name === 'goal_gate_check').execute({}, isoExec)],
     ['goal_gate_init', await registeredTools.find(t => t.name === 'goal_gate_init').execute({}, isoExec)]];
+  // 缺陷史:宿主在工具边界做 lossless-JSON 校验（等价 visitJsonValue），
+  // 嵌套 undefined / NaN / ±Infinity / -0 / 函数 都会让整个返回值被判
+  // "value is not lossless JSON"——工具明明做成了却整单作废，还会白烧一轮。
+  // jsonSafe 在返回前递归清理。这里按同一规则镜像校验每个真实返回值。
+  function assertLossless(v, path, who) {
+    const where = `${who}@${path}`;
+    if (v === undefined) assert.fail(`${where}: undefined 值 — 宿主判 not lossless JSON`);
+    if (v === null || typeof v === 'boolean' || typeof v === 'string') return;
+    if (typeof v === 'number') {
+      assert.ok(Number.isFinite(v), `${where}: 非有限数 ${v} — 宿主判 not lossless JSON`);
+      assert.ok(!Object.is(v, -0), `${where}: -0 — 宿主判 not lossless JSON`);
+      return;
+    }
+    if (typeof v !== 'object') assert.fail(`${where}: ${typeof v} 值 — 宿主判 not lossless JSON`);
+    if (Array.isArray(v)) {
+      v.forEach((x, i) => assertLossless(x, `${path}[${i}]`, who));
+      return;
+    }
+    const proto = Object.getPrototypeOf(v);
+    assert.ok(proto === Object.prototype || proto === null, `${where}: 非 plain object (proto ${proto && proto.constructor?.name})`);
+    for (const k of Object.keys(v)) assertLossless(v[k], `${path}.${k}`, who);
+  }
   for (const [name, res] of samples) {
     const declared = new Set(Object.keys(registeredTools.find(t => t.name === name).output?.schema?.properties ?? {}));
     for (const k of Object.keys(res)) {
       assert.ok(declared.has(k), `${name} returns undeclared key '${k}' — harness output validation will reject the whole call`);
     }
+    assertLossless(res, '', name);
   }
-  console.log('✓ [10b] returned keys ⊆ declared schema keys (all tools, live-return sampling)');
+  // 最毒的形态：空账本首轮 check——bestScore/neverFailed/preflight 全 undefined。
+  // 若 jsonSafe 漏掉任何一处，这里立刻炸出来。
+  {
+    const iso2 = fs.mkdtempSync('/tmp/goal-gate-wiring10b2-');
+    const iso2Agent = { session: { header: { cwd: iso2 } } };
+    const initRes = await registeredTools.find(t => t.name === 'goal_gate_init').execute({}, { agent: iso2Agent });
+    assert.equal(initRes.created, true);
+    const firstCheck = await registeredTools.find(t => t.name === 'goal_gate_check').execute({}, { agent: iso2Agent });
+    assertLossless(firstCheck, '', 'goal_gate_check(first-round)');
+    for (const k of ['bestScore', 'neverFailed', 'preflight']) {
+      assert.ok(!(k in firstCheck) || firstCheck[k] !== undefined, `first-round check leaks ${k}: undefined`);
+    }
+  }
+  console.log('✓ [10b] returned keys ⊆ declared schema keys + lossless-JSON mirror validation (all tools, live-return sampling)');
 }
 
 // ── /goal-loop-at 命令（handler 形状 + followup 递协议给 agent）───────────────
