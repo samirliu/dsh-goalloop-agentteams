@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const GENERIC = ['lib', 'bin', 'skills', 'test', 'docs', 'README.md', 'README.zh.md', 'package.json', 'cordis.patch.yml'];
-const FORBIDDEN = ['b747', '波音', '747-400'];
+const FORBIDDEN = ['b747', '波音', '747', '飞机', '全黑', '翻车'];
 
 const out = execSync(
   `grep -rniE "${FORBIDDEN.join('|')}" --exclude=purity_test.mjs ${GENERIC.join(' ')} 2>/dev/null || true`,
