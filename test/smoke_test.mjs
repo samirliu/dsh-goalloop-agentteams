@@ -47,7 +47,8 @@ assert.equal(extractMetric('elapsed 7\nscore: 42\n', 'score: (\\d+)'), 42, 'metr
 assert.equal(extractMetric('7\nscore: none\n', 'score: (\\d+)'), null, 'regex mismatch -> null (not the stray 7)');
 assert.equal(extractMetric('total: 3\n'), 3, 'fallback last-number');
 assert.equal(extractMetric('nothing', 'score: (\\d+)'), null);
-console.log('✓ extractMetric: regex / fallback / null cases');
+assert.equal(extractMetric('total=30 ok=30', 'ok=(\\d+)|total=(\\d+)'), 30, 'alternation regex: first DEFINED capture used');
+console.log('✓ extractMetric: regex / fallback / null / alternation-capture cases');
 
 // maximize + baseline：delta=严格改善，abs（缺省）=不回退；无基线 → unverifiable
 assert.equal(judgeExpected('maximize', { exitCode: 0, stdout: '' }), 'unverifiable', 'maximize w/o metric is NOT passed (Goodhart guard)');
