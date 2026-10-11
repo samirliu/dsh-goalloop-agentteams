@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url';
 import { runGate, parseContract } from '../lib/core.js';
 import {
   contractPath, readState, writeState, recordRun, readHistory, readLoop,
-  preflightChecks, neverFailedAcs,
+  preflightChecks, neverFailedAcs, loopIdleStatus, idleWarning, duplicateEvalNote,
 } from '../lib/ledger.js';
 
 const args = process.argv.slice(2);
@@ -40,12 +40,14 @@ if (cmd === 'status') {
     contract: cp, stamp: text ? contract.acs.length : 0,
     falseCompletes: state.falseCompletes ?? 0, partialCompletes: state.partialCompletes ?? 0,
     bestScore: state.bestScore ?? null, baselines: state.baselines ?? {},
+    lastRunAt: state.lastRunAt ?? null, idle: loopIdleStatus(state, readLoop(root)),
     loop: readLoop(root), history: readHistory(root).slice(-5),
   });
   process.exit(0);
 }
 
 if (cmd === 'check') {
+  const historyBefore = readHistory(root); // 重评检测(recordRun 追加前的历史)
   const g = runGate(text, { cwd: root, baselines: { ...(state.baselines ?? {}) } });
   const { baselineUpdates: _b, ...gOut } = g;
   const fin = recordRun(root, state, g, 'check');
@@ -53,15 +55,23 @@ if (cmd === 'check') {
   const never = neverFailedAcs(history, contract.acs, 2, g.stamp);
   const failedActions = (g.results ?? []).filter((r) => r.status !== 'passed').map((r) => {
     const ac = contract.acs.find((x) => x.id === r.id);
-    return ac ? { id: ac.id, statement: ac.statement, check: ac.check, expected: ac.expected } : { id: r.id };
+    return ac ? { id: ac.id, statement: ac.statement, check: ac.check, expected: ac.expected, why: r.why } : { id: r.id };
   });
+  const loopNow = readLoop(root);
+  const warnings = preflightChecks(text);
+  const idleWarn = idleWarning(state, loopNow);
+  if (idleWarn) warnings.push(idleWarn);
+  const idle = loopIdleStatus(state, loopNow);
+  const dup = duplicateEvalNote(historyBefore, loopNow, g);
   const base = {
     ...gOut, contract: cp,
+    ...(dup ? { note: gOut.note ? `${gOut.note}; ${dup}` : dup } : {}),
     round: fin.round, maxRounds: fin.maxRounds, remainingRounds: fin.remainingRounds,
     roundsExhausted: fin.roundsExhausted, bestScore: state.bestScore ?? undefined,
     regression: fin.regression, failedActions,
+    idleHours: idle ? idle.idleHours : undefined,
     neverFailed: never.length ? never : undefined,
-    preflight: preflightChecks(text).length ? preflightChecks(text) : undefined,
+    preflight: warnings.length ? warnings : undefined,
   };
   if ((state.falseCompletes ?? 0) >= 2) {
     fail(3, { ...base, rc: 3, code: 'blocked', reason: `false-completes=${state.falseCompletes} ≥ 2; gate blocked. 等人介入。(${g.reason})` });

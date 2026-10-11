@@ -96,6 +96,7 @@ fs.appendFileSync(path.join(dir, 'a.txt'), 'more\nlines\n');
 const r3 = runGate(metricContract, { cwd: dir, baselines: { [mKey]: 1 } });
 assert.equal(r3.results[0].status, 'passed', 'third run: 3 > 1 (delta improves)');
 assert.equal(r3.score, 1);
+assert.equal(typeof r3.ms, 'number', 'runGate self-times (defect #15: 账本可归因延迟)');
 console.log('✓ runGate: baseline cycle (unverifiable -> failed -> passed), score works');
 
 // judged 行端到端：probe 即判官
@@ -111,6 +112,11 @@ assert.equal(byId['AC-1'], 'unverifiable', 'judge ok but NO evidence binding -> 
 assert.equal(byId['AC-2'], 'failed', 'judge probe fails -> failed');
 assert.equal(byId['AC-3'], 'unverifiable', 'judged without judge -> unverifiable');
 assert.equal(byId['AC-4'], 'unverifiable', 'missing judge command -> unverifiable (not failed)');
+// 缺陷 #13:unverifiable 不许哑巴——每条都必须说清为什么无法验证
+const whyById = Object.fromEntries(j.results.map(r => [r.id, r.why ?? '']));
+assert.match(whyById['AC-1'], /artifact: /, 'void verdict names the required evidence lines');
+assert.match(whyById['AC-3'], /probe/, 'judged without judge points at the missing judge');
+assert.match(whyById['AC-4'], /127/, 'unreachable judge explains exit 127 (validator broken != review failed)');
 console.log('✓ runGate: judged rows use probe as deterministic judge; evidence binding mandatory');
 
 // judged 证据摘要绑定:评审引用的 artifact+digest 与现状不一致 → 作废(unverifiable)
@@ -125,10 +131,12 @@ const ev1 = runGate(evContract(goodDigest), { cwd: dir });
 assert.equal(ev1.results[0].status, 'passed', 'matching digest keeps the verdict');
 const ev2 = runGate(evContract('0'.repeat(64)), { cwd: dir });
 assert.equal(ev2.results[0].status, 'unverifiable', 'stale/mismatched evidence digest voids the verdict');
+assert.match(ev2.results[0].why ?? '', /stale/, 'stale digest says why (defect #13: 哑巴作废已成历史)');
 const ev3 = runGate(`objective: 证据绑定
 AC-1 | 评审 | check: \`echo verdict ok\` | probe: \`test -f ev.txt\` | expected: judged
 `, { cwd: dir });
 assert.equal(ev3.results[0].status, 'unverifiable', 'verdict without evidence binding is void (mandatory discipline)');
+assert.match(ev3.results[0].why ?? '', /artifact: /, 'unbound verdict states what the conclusion must contain');
 const parsed2 = parseContract('objective: x\ndeliverable: dist/app.html\nAC-1 | y | check: `true` | expected: exit=0');
 assert.equal(parsed2.deliverable, 'dist/app.html', 'deliverable declaration parsed');
 console.log('✓ evidence binding: digest match / mismatch voided / back-compat / deliverable parsed');

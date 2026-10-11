@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { preflightChecks, neverFailedAcs, recordRun, readHistory } from '../lib/ledger.js';
+import { preflightChecks, neverFailedAcs, recordRun, readHistory, loopIdleStatus, idleWarning, duplicateEvalNote } from '../lib/ledger.js';
 
 // ── 预检 lint ─────────────────────────────────────────────────────────
 const warnings = preflightChecks(`objective: x
@@ -133,5 +133,64 @@ assert.equal(run3.roundsExhausted, false, 'T2 budget fresh');
 const h3 = readHistory(root3);
 assert.deepEqual(neverFailedAcs(h3, [{ id: 'AC-1' }, { id: 'AC-2' }], 2, 'S2'), [], 'stamp S2 has <2 runs -> no never-failed report');
 console.log('✓ loop-scoped rounds + stamp-scoped neverFailed');
+
+// ── 缺陷 #14:state-error(契约畸形/零评估)记审计行、不烧轮 ───────────────
+const root4 = fs.mkdtempSync('/tmp/ledger-stateerr-');
+fs.mkdirSync(path.join(root4, '.goal-gate'));
+fs.writeFileSync(path.join(root4, '.goal-gate', 'loop.json'), JSON.stringify({ createdAt: 'T1', maxRounds: 2 }));
+const st4 = mk();
+const se1 = recordRun(root4, st4, { code: 'no-go', score: 0.5, stamp: 'S1', results: [] }, 'check');
+assert.equal(se1.round, 1);
+for (let i = 0; i < 3; i++) {
+  const e = recordRun(root4, st4, { code: 'state-error', results: [] }, 'check');
+  assert.equal(e.roundsExhausted, false, `state-error must not exhaust the budget (hit ${i})`);
+}
+const se2 = recordRun(root4, st4, { code: 'no-go', score: 0.5, stamp: 'S1', results: [] }, 'check');
+assert.equal(se2.round, 2, 'three state-error entries must have burned zero rounds');
+const se3 = recordRun(root4, st4, { code: 'no-go', score: 0.5, stamp: 'S1', results: [] }, 'check');
+assert.equal(se3.round, 3, 'real checks continue counting normally after error entries');
+assert.equal(se3.roundsExhausted, true);
+const h4 = readHistory(root4);
+assert.equal(h4.length, 6, 'all six gate outcomes recorded, errors included (audit trail intact)');
+assert.equal(h4.filter((h) => h.code === 'state-error').length, 3, 'state-error entries are written to history');
+console.log('✓ state-error: recorded but never counted as a round (defect #14)');
+
+// ── 缺陷 #15:最近评估时钟 + loop 停摆检测;门控自计时 ────────────────────
+assert.ok(typeof st4.lastRunAt === 'string' && Date.parse(st4.lastRunAt) > 0, 'recordRun stamps lastRunAt');
+const now = Date.now();
+const oldTs = new Date(now - 7 * 3_600_000).toISOString();
+let idleS = loopIdleStatus({ lastRunAt: oldTs }, { createdAt: 'x', status: 'active' }, now);
+assert.equal(idleS.stalled, true, '7h without evaluation while active = stalled');
+assert.ok(idleS.idleHours >= 6.9 && idleS.idleHours <= 7.1, 'idleHours measured');
+idleS = loopIdleStatus({ lastRunAt: oldTs }, { createdAt: 'x', status: 'suspended' }, now);
+assert.equal(idleS.stalled, false, 'explicit suspended = honest waiting, not stalling');
+idleS = loopIdleStatus({ lastRunAt: oldTs }, { createdAt: 'x', status: 'active', idleWarnHours: 12 }, now);
+assert.equal(idleS.stalled, false, 'idleWarnHours configurable via loop.json');
+idleS = loopIdleStatus({}, { createdAt: new Date(now - 9 * 3_600_000).toISOString(), status: 'active' }, now);
+assert.equal(idleS.stalled, true, 'never-evaluated loop measures from createdAt (fresh contract, 9h silence)');
+assert.ok(idleWarning({ lastRunAt: oldTs }, { createdAt: 'x', status: 'active' })?.kind === 'loop-idle', 'idleWarning surfaces a warning entry');
+assert.equal(idleWarning({ lastRunAt: new Date(now - 60000).toISOString() }, { createdAt: 'x', status: 'active' }), undefined, 'fresh evaluation: no idle warning');
+console.log('✓ loopIdleStatus/idleWarning: active-vs-suspended / threshold / createdAt fallback (defect #15)');
+
+// ── 缺陷 #16:同结论重评点名(只看不修也烧轮的代价要说出来)───────────────
+const H = [{ ts: '1', trigger: 'check', code: 'no-go', stamp: 'S1', score: 0.5, failed: ['AC-2'], loopKey: 'default' }];
+const dupG = (code, stamp, score, failedIds) => ({ code, stamp, score, results: failedIds.map((id) => ({ id, status: 'failed' })) });
+assert.ok(duplicateEvalNote(H, null, dupG('no-go', 'S1', 0.5, ['AC-2'])) !== null, 'identical re-evaluation is named');
+assert.equal(duplicateEvalNote(H, null, dupG('no-go', 'S1', 0.75, ['AC-2'])), null, 'score improved: that is an experiment, not a peek');
+assert.equal(duplicateEvalNote(H, null, dupG('go', 'S1', 1, [])), null, 'different code: not a duplicate');
+assert.equal(duplicateEvalNote(H, null, dupG('no-go', 'S2', 0.5, ['AC-2'])), null, 'contract changed: not a duplicate');
+assert.equal(duplicateEvalNote(H, null, { code: 'state-error', stamp: null, results: [] }), null, 'gate errors are never called duplicates');
+console.log('✓ duplicateEvalNote: same-conclusion peek named, changed evaluation untouched (defect #16)');
+
+// ── judged 纪律前置化:预检就该说,不等烧一轮才哑巴(缺陷 #13)─────────────
+const w7 = preflightChecks(`objective: x
+deliverable: d.html
+AC-1 | 评审 | check: \`echo x\` | expected: judged
+AC-2 | 评审有判官 | check: \`echo x\` | probe: \`node judge.mjs\` | expected: judged
+AC-3 | 运行时 | check: \`node d.html\` | expected: exit=0
+`);
+assert.ok(w7.some((w) => w.kind === 'judged-judge-missing' && w.id === 'AC-1'), 'judged without probe flagged upfront');
+assert.ok(w7.some((w) => w.kind === 'judged-evidence-binding'), 'evidence-binding discipline surfaced before spending a round');
+console.log('✓ preflight judged guidance: judge-missing + evidence-binding (defect #13)');
 
 console.log('\nAll ledger tests passed.');
