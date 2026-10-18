@@ -4,7 +4,7 @@
 
 契约先行；门控**自己重跑每条 check**（零模型信任）；人类盖章冻结"done 的定义"；verdict 绑定内容摘要；假完成在 `update_goal` / 团队任务 / 任务板三个完成面被 `tools/pre-execute` 硬拦。goal-loop 的便携 team 文件协议与双账本**故意不移植**——原生 Agent Teams 更强。
 
-**v0.8.0 — Agent Teams 原生闭环 + grilling 评估设计**（相对 0.6.2）：
+**v0.9.0 — Agent Teams 编排：编队、收集、评审**（相对 0.6.2）：
 
 - **BROKEN 是决定性的**：仪器缺失（rc 127）、probe 失败、取数失败、`sd:`/`var:` 匹配不到、judged 证据失联/过期、判官缺失、calib 缺陷一律 `broken` → NO-GO；不再能藏在"≤1/3 unverifiable"的放行带里。
 - **R3 批准盖章**：`goal_gate_stamp` / `/goal-stamp` 冻结契约与预算；之后任何契约编辑都会让完成声明以 `contract-revised` 被拒，直到显式重盖章。
@@ -13,6 +13,7 @@
 - **预算是保险丝**：轮次/墙钟预算在盖章时绑定，非 GO 的完成声明到点即拒；`/goal-reset --new-loop` 是人类恢复入口。
 - **DSH 原生**：拦截 `task_board_manage` 的 `move-done`；`dispatch:true` 与 `goal_gate_dispatch` 为 Team Lead 创建真实的原生 Agent Teams 任务；只读 `goal_gate_status` / `goal_gate_audit`。
 - **宿主契约修复（v0.7.1）**：工具参数始终编译成 object 根的 provider schema；测试用的 `dsh-tools` shim 绝不再留进 link 安装的包目录（它曾导致启动即报 `schema must be a JSON Schema of 'type: "object"', got 'type: null'`）。
+- **团队编队（v0.9）**：`goal_gate_staff` 把 AC（或依赖波）变成队友规格，默认只预览；`spawn:true` 才真正创建原生队友、建/派任务并发送 AC 简报。`goal_gate_collect` 把任务状态映射回 AC（`readyToCheck` 决定何时跑门控）；`goal_gate_judge` 为 judged AC 建冷席评审任务（要求 digest/calib 证据）。
 - **Agent Teams 原生派工（v0.8）**：AC 可声明 `scope:`/`depends:`；派工按依赖分波，设置 `blockedBy`/`writeScopes`，复用未完成的同 stamp 任务而不是重复建卡，并可指定 owner。`goal_gate_status`/`goal_gate_check` 返回团队快照与 `nextActions`；账本锁把并发成员的判定/记账串行化。
 - **Grilling 评估设计（v0.8）**：`goal-loop-grill` skill + `goal_gate_grill` 工具对抗式审查契约（永真式、不可判、Goodhart 代理、缺运行时证据、judged 未绑定、缺噪声带、scope 重叠）；`goal_gate_baseline` 在盖章前量出 optimize AC 的均值/离散度。
 - **打包 skill + 命令**：三个 skill 出现在会话 skill 目录；`/goal-loop-at`、`/goal-gate`、`/goal-stamp`、`/goal-audit`、`/goal-reset` 注册。
@@ -81,9 +82,12 @@ dsh plugin --profile <profile> add github:samirliu/dsh-goalloop-agentteams
 | `goal_gate_dispatch` | 给失败/坏掉的 AC 建原生修复任务：依赖→`blockedBy`、scope→`writeScopes`、幂等、可指定 owner | `gate`、`dispatched`、`failed`、`skippedExisting`、`reason`、`suggestions` |
 | `goal_gate_grill` | 盖章前只读对抗审查 eval/metric | `ok`、`verdict`、`findings`、`questions`、`metricDesign`、`goodhart` |
 | `goal_gate_baseline` | 测量 optimize AC 基线/离散度（不烧轮） | `samples`、`acs`、`recorded`、`notes` |
+| `goal_gate_staff` | 编队：按 AC/波生成队友规格；预览或真实 spawn + 派任务 | `mode`、`members`、`failed`、`tasks`、`notes` |
+| `goal_gate_collect` | 把团队任务状态映射回 AC；`readyToCheck` 决定是否跑门控 | `available`、`readyToCheck`、`byAc`、`completed`、`inProgress`、`pending`、`missing` |
+| `goal_gate_judge` | 为 judged AC 建冷席评审任务（fresh reviewer、digest/calib 简报） | `kind`、`dispatched`、`failed`、`skippedExisting`、`reason`、`suggestions` |
 | `goal_gate_doctor` | 自检工具/参数 schema/命令/skill/Teams/契约 | `ok`、`version`、`tools`、`commands`、`skills`、`agentTeams`、`contract`、`notes` |
 
-命令：`/goal-loop-at <objective>`、`/goal-gate`（状态）、`/goal-stamp [--restamp] [--max-rounds=N] [--time-budget-minutes=N] [approvedBy]`、`/goal-audit`、`/goal-grill`、`/goal-baseline [samples]`、`/goal-doctor`、`/goal-reset [--new-loop] [reason]`。
+命令：`/goal-loop-at <objective>`、`/goal-gate`（状态）、`/goal-stamp [--restamp] [--max-rounds=N] [--time-budget-minutes=N] [approvedBy]`、`/goal-audit`、`/goal-grill`、`/goal-baseline [samples]`、`/goal-collect`、`/goal-judge [reviewer]`、`/goal-doctor`、`/goal-reset [--new-loop] [reason]`。
 
 运行时 skill：**`goal-loop`**（主 playbook）、**`goal-loop-contract`**（契约 forge / 盖章清单）与 **`goal-loop-grill`**（对抗式 eval/metric 设计）。通过 `ctx.skills.register` 注册进模型 skill 目录，无需文件系统安装。
 
@@ -155,6 +159,9 @@ AC-N | <yes/no 判定语句> | check: `<可失败命令>` | [probe: `<仪器检�
 | 归属 | `goal_gate_dispatch({assign: {"AC-2": "engineer"}})` 把新建任务改派给成员 |
 | 可见性 | `goal_gate_status` / `goal_gate_check` 返回 `team`（成员、任务→AC 映射、ready/未分配计数）与 `nextActions`（`dispatch-repairs`、`collect-team`、`assign-ready-tasks`、`stop-budget`…） |
 | 并发 | `goal_gate_check`/`stamp`/`dispatch`/完成声明拦截都会拿账本锁；并发调用得到 `[goal-gate:busy]`，不会互相覆盖轮次/基线 |
+| 编队 | `goal_gate_staff` 预览队友→AC/波分配；`spawn:true` 真正创建队友、派任务并发简报 |
+| 收集 | `goal_gate_collect` 把任务板状态映射回 AC；`readyToCheck=true` 表示团队认为该波完成，Lead 应跑门控 |
+| 评审 | `goal_gate_judge` 为 judged AC 建冷席评审任务；简报要求 `artifact:`、`digest:`、`calib-good/bad`、`score:` |
 | 非 Lead | 返回 `suggestions`（subject/description/scope/depends）而不是伪造成功；协议回退到 `subagent`/`subagent_fork` 或 `task_board_create` |
 
 ## 用 grilling 设计评估
@@ -214,7 +221,7 @@ AC-N | <yes/no 判定语句> | check: `<可失败命令>` | [probe: `<仪器检�
 <abs-node> test/run-local.mjs
 ```
 
-真实 `@deepseek-ai/dsh-tools` 在 Host 内、Host 外不可 import；入口回退到会编译参数 schema 的 shim。测试**绝不**把 `node_modules/@deepseek-ai/dsh-tools` shim 写进包目录：`link:` 安装时它会赢得模块解析，Host 注册到未编译的参数 schema（provider 报 `type: null`）。套件覆盖判定内核、接线（全部工具/命令/skill、provider 可见参数 schema）、账本/审计/盖章、红队防线、纯度、无 commands 服务的装载安全，v0.7 面（保险丝、任务板声明、派工、效率、reset），以及 v0.8 面（scope/depends 分波、幂等/阻塞派工、团队快照/nextActions、grilling、基线/离散度、账本锁）。真实宿主注册契约已对 0.2.1-rc.2 解包产物验证；见 `docs/platform-contract.md`。
+真实 `@deepseek-ai/dsh-tools` 在 Host 内、Host 外不可 import；入口回退到会编译参数 schema 的 shim。测试**绝不**把 `node_modules/@deepseek-ai/dsh-tools` shim 写进包目录：`link:` 安装时它会赢得模块解析，Host 注册到未编译的参数 schema（provider 报 `type: null`）。套件覆盖判定内核、接线（全部工具/命令/skill、provider 可见参数 schema）、账本/审计/盖章、红队防线、纯度、无 commands 服务的装载安全，v0.7 面（保险丝、任务板声明、派工、效率、reset），v0.8 面（scope/depends 分波、幂等/阻塞派工、团队快照/nextActions、grilling、基线/离散度、账本锁），以及 v0.9 面（编队预览/spawn、收集团队完成度、评审任务、锁等待、horizon 防线）。真实宿主注册契约已对 0.2.1-rc.2 解包产物验证；见 `docs/platform-contract.md`。
 
 ## 许可
 

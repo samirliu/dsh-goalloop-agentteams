@@ -43,7 +43,7 @@ function claimDecision(reg, exec, name, args) {
     assert.equal(s.source, 'runtime');
     assert.ok(s.path && fs.existsSync(s.path), `${s.name} exposes its file path`);
   }
-  assert.deepEqual(reg.cmds.map((c) => c.name).sort(), ['goal-audit', 'goal-baseline', 'goal-doctor', 'goal-gate', 'goal-grill', 'goal-loop-at', 'goal-reset', 'goal-stamp']);
+  assert.deepEqual(reg.cmds.map((c) => c.name).sort(), ['goal-audit', 'goal-baseline', 'goal-collect', 'goal-doctor', 'goal-gate', 'goal-grill', 'goal-judge', 'goal-loop-at', 'goal-reset', 'goal-stamp']);
   for (const t of reg.tools) assert.equal(typeof t.output.render, 'function', `${t.name} declares output.render`);
   for (const c of reg.cmds) assert.ok(!c.input || c.input.hint.length > 0, `${c.name} never declares an empty hint`);
   console.log('✓ v0.7 registration: core tools + commands + runtime skills');

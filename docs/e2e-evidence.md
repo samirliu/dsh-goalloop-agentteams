@@ -1,5 +1,25 @@
 # E2E / host-contract evidence
 
+## v0.9.0 — staff / collect / judge (DSH 0.2.1-rc.2)
+
+Real-registry harness (same method as below; plugin applied as a cordis fiber):
+
+| Check | Observed |
+|---|---|
+| Tools | 13 registered, including `goal_gate_staff`, `goal_gate_collect`, `goal_gate_judge`; every `parameters.type === "object"` (nested `members` compiles to object/required arrays) |
+| Commands | 10 registered including `goal-collect`, `goal-judge` |
+| Skills | 3: `goal-loop`, `goal-loop-contract`, `goal-loop-grill` |
+| `goal_gate_staff` without Teams | `mode:"unavailable"` with an actionable note (no fake spawn) |
+| `goal_gate_collect` without Teams | `available:false`, empty mapping, explanatory note |
+| `goal_gate_judge` with no judged ACs | empty dispatch + reason, no error |
+| `goal_gate_doctor` | `ok:true`, 13 tools, 10 commands, 3 skills |
+| Existing GO/deny paths | unchanged: `goal_gate_check` success; completion deny `contract-revised` |
+
+Team-side behaviour (fake `goalTeam` service + live team service for snapshot) is
+covered in `test/v09_test.mjs`: staff preview is read-only; `spawn:true` creates
+teammates/tasks/owners; collect returns `readyToCheck`; judge dedupes review tasks;
+lock `waitMs` retries; grill flags a missing horizon.
+
 ## v0.8.0 — Agent Teams-native tools + grilling (DSH 0.2.1-rc.2)
 
 Same real-registry harness as below (packages extracted from the desktop app; real

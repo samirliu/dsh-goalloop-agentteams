@@ -106,6 +106,13 @@ AC-N | <yes/no statement> | check: `<failable command>` | [probe: `<instrument c
   `reason?`, `suggestions?`. It is idempotent: a pending/in-progress task with
   the same contract stamp is reused, not duplicated; `assign` maps
   `{ "AC-1": "member" }` to owners. A non-Lead gets suggestions.
+- `goal_gate_staff({members?, spawn?})` is the orchestration step: preview the
+  member→AC/wave assignment, then `spawn:true` only when the user wants real
+  teammates. It creates/assigns one board task per owned AC and sends each
+  member an AC brief. `goal_gate_collect({})` maps completed/in-progress/missing
+  tasks back to ACs and returns `readyToCheck`; run `goal_gate_check` when it is
+  true. `goal_gate_judge({reviewer?, assign?})` creates fresh-reviewer tasks for
+  judged ACs with artifact/digest/calib requirements.
 - `goal_gate_status` includes a `team` snapshot for a Team Lead: members,
   tasks mapped to ACs, ready/unowned counts — and `nextActions`
   (`dispatch-repairs`, `collect-team`, `assign-ready-tasks`, `audit-and-claim`,
@@ -133,6 +140,7 @@ AC-N | <yes/no statement> | check: `<failable command>` | [probe: `<instrument c
   by probes) under `.goal-gate/evidence/` (digest-excluded); a judged
   `artifact:` may be the deliverable (read-only) or an evidence file there.
 - Before any claim run `goal_gate_audit({})`: contract parses, stamp matches,
+  (for a team) `goal_gate_collect` should be `readyToCheck`;
   not BLOCKED, last check is GO, digest fresh; warns on soft-unverifiable ACs,
   preflight/neverFailed issues, missing optimize baselines and budget. Non-ok
   `violations` blocks.
@@ -234,5 +242,7 @@ AC-2 | malformed row is refused | check: `/abs/node dist/csv2jsonl.mjs fixtures/
 | `regression:true` | candidate worse than the water mark | restore the best artifact before the next check |
 | `[goal-gate:contract-revised]` | contract edited after stamp | show the diff, get approval, `goal_gate_stamp({restamp:true})` |
 | `BLOCKED` / false-completes ≥2 | claiming without fixing the artifact | stop; hand the human the last failed actions |
+| `goal_gate_staff` preview | no teammates spawned yet | show the member/AC plan; call again with `spawn:true` only after user approval |
+| `goal_gate_collect.readyToCheck:false` | tasks missing or still in progress | assign a teammate (`assign`) or wait; do not run the gate yet |
 | `deliverable-unverified` / no runtime AC | checks only touch derived data | add a runtime AC that executes the deliverable, plus a judged AC on it |
 | `roundsExhausted` / `timeExhausted` | budget spent | stop and escalate; the budget is frozen, not negotiable |

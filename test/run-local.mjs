@@ -13,7 +13,7 @@ import { spawnSync } from 'node:child_process';
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 
-for (const t of ['smoke_test.mjs', 'wiring_test.mjs', 'ledger_test.mjs', 'redteam_test.mjs', 'purity_test.mjs', 'loadsafe_test.mjs', 'v07_test.mjs', 'v08_test.mjs']) {
+for (const t of ['smoke_test.mjs', 'wiring_test.mjs', 'ledger_test.mjs', 'redteam_test.mjs', 'purity_test.mjs', 'loadsafe_test.mjs', 'v07_test.mjs', 'v08_test.mjs', 'v09_test.mjs']) {
   console.log(`\n=== ${t} ===`);
   const r = spawnSync(process.execPath, [path.join(root, 'test', t)], { stdio: 'inherit' });
   if (r.status !== 0) process.exit(r.status ?? 1);

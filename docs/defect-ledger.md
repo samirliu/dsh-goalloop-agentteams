@@ -45,6 +45,10 @@
 | 36 | eval 设计没有对抗面 | 契约能写但没人问"能不能刷分/能不能失败/证据绑没绑";问题到烧完轮才发现 | `goal-loop-grill` skill + `goal_gate_grill` 工具:findings/questions/metricDesign/goodhart;ready 需无 high/medium | v08:grill |
 | 37 | 基线/噪声只靠口头 | optimize AC 的首轮值直接当水位,没有均值/离散度;后续 band 靠猜 | `goal_gate_baseline` 跑 N 次,写 state.baselines/spreads;runGate 在无 sd/var 输出时使用已记录 spread;audit 对未建基线亮黄牌 | v08:baseline/spread;v08:audit |
 | 38 | 下一步不可执行 | 门控给出 failedActions,但团队里"现在该派工/等谁/停止"要靠模型猜 | check/status 输出 `nextActions`(dispatch-repairs/collect-team/assign-ready-tasks/audit-and-claim/stop-budget…);status 带 team 快照 | v08:team/nextActions |
+| 39 | 只能建任务,不能组队 | Agent Teams 适配停在 task board:谁干什么、谁拥有哪张卡、怎么唤醒全靠模型手工 | `goal_gate_staff` 把 AC/依赖波变成队友规格;默认预览,`spawn:true` 才 spawn 原生队友、建/派任务并发 AC 简报 | v09:staff preview/spawn |
+| 40 | 团队完成度不可判定 | 只能看任务状态,不知道是否所有 AC 都有任务、能不能跑门控 | `goal_gate_collect` 映射 completed/inProgress/pending/missing→AC,给出 `readyToCheck` | v09:collect |
+| 41 | 冷席评审没有入口 | judged AC 只能靠模型自己"记得"找 fresh reviewer,证据/calib 纪律不可执行 | `goal_gate_judge` 为 judged AC 建幂等评审任务,简报强制 artifact/digest/calib/score | v09:judge |
+| 42 | 并发锁立即失败 / 优化无 horizon | 队友同时操作时 busy 直接失败;optimize-only 契约没有盲区防线 | `withLedgerLock waitMs` 短等待重试;grill 对无 judged+calib 且无 `horizon-waived:` 的优化契约亮 medium | v09:lock/grill |
 
 ## 质量演进
 
@@ -60,6 +64,7 @@
 - **DSH 原生面**(v0.7.0):原生 Agent Teams 任务派工(Lead)、只读 status/audit、策略/效率归因、两个打包 skill
 - **团队闭环**(v0.8.0):scope/depends 文法 + 分波派工、幂等 repair、owner 指派、团队快照/nextActions、账本锁
 - **评估设计**(v0.8.0):grilling skill + grill 工具、基线与离散度测量、数据驱动噪声带、第三个运行时 skill
+- **团队编排**(v0.9.0):staff 预览/spawn、collect 就绪判定、judge 冷席评审、锁等待、horizon 防线
 
 ## 运营发现(循环侧,非内核缺陷)
 
