@@ -58,9 +58,13 @@ NODE="/Applications/DeepSeek Harness.app/Contents/Resources/runtime/primary-runt
 "$NODE" test/smoke_test.mjs       # kernel only
 ```
 
-The test runner copies a minimal `defineTool` shim into
-`node_modules/@deepseek-ai/dsh-tools` (the real package lives inside the Host). Do not
-commit that directory.
+The real `@deepseek-ai/dsh-tools` lives inside the Host. Tests use the entry's
+schema-compiling fallback and **must never create `node_modules/@deepseek-ai/dsh-tools`
+inside this package**: in a `link:` install that shim wins module resolution and the
+Host registers raw parameter maps, which the provider rejects with
+`schema must be a JSON Schema of 'type: "object"', got 'type: null'`. This was a real
+boot-breaking incident; `test/run-local.mjs` no longer writes a shim and
+`test/wiring_test.mjs` asserts `parameters.type === 'object'` for every tool.
 
 ### Verifying the real host contract
 

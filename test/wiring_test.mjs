@@ -40,6 +40,11 @@ function assertOutputSchema(node, where) {
 }
 for (const t of registeredTools) {
   assert.equal(typeof t.output.render, 'function', `${t.name} declares output.render (0.2.1-rc.2 calls it on success)`);
+  // Provider-visible function schema: every tool must hand the model a root object.
+  // An identity defineTool shim used to leave this as a bare property map and the API
+  // rejected the whole request with "schema must be a JSON Schema of 'type: object'".
+  assert.equal(t.parameters?.type, 'object', `${t.name} parameters compile to type:object`);
+  assert.equal(typeof t.parameters?.properties, 'object', `${t.name} parameters carry a properties map`);
   assert.match(t.output.render({}, {}).map((b) => b.type).join(','), /text/, `${t.name} render returns a text block`);
   assertOutputSchema(t.output.schema, `${t.name}.output`);
 }

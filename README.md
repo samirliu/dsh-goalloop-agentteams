@@ -201,7 +201,7 @@ A resumed session may lack the plugin's tool table. The same ledger and the same
 <abs-node> test/run-local.mjs
 ```
 
-The real `@deepseek-ai/dsh-tools` lives inside the DSH Host and is not importable outside it, so the runner copies a minimal `defineTool` shim from `test/fixtures/dsh-tools-shim`. The suite covers core judgement, wiring (all tools/commands/skills), ledger/audit/stamp, red-team defences, purity, load-safety without commands, and the v0.7 surfaces (fuses, task-board claims, dispatch, efficiency, reset). The real-host registration contract (render, output-schema subset, command fiber, skills) is verified against the extracted 0.2.1-rc.2 packages; see `docs/platform-contract.md`.
+The real `@deepseek-ai/dsh-tools` lives inside the DSH Host and is not importable outside it, so the entry falls back to a parameter-schema-compiling shim. Tests never write a `node_modules/@deepseek-ai/dsh-tools` shim into the package directory: in a `link:` install that shim wins module resolution and the Host would register un-compiled parameter schemas (the provider rejects them with `type: null`). The suite covers core judgement, wiring (all tools/commands/skills, provider-visible parameter schemas), ledger/audit/stamp, red-team defences, purity, load-safety without commands, and the v0.7 surfaces (fuses, task-board claims, dispatch, efficiency, reset). The real-host registration contract is verified against the extracted 0.2.1-rc.2 packages; see `docs/platform-contract.md`.
 
 ## License / 许可
 

@@ -90,9 +90,14 @@ keep working by default.
 - The desktop host bundles Node 24.21.0 under
   `runtime/primary-runtime/dependencies/node/bin/node`. A `node` on `PATH` can be
   broken (SIGKILL on this machine): never write a bare `node` in gate scripts or docs.
-- `link:` installs may fail to resolve `@deepseek-ai/dsh-tools` through the host's
-  module routing; the entry tries the bare specifier first and falls back to a
-  same-shape `defineTool` shim. Registry/git installs resolve the real package.
+- `link:` installs may resolve `@deepseek-ai/dsh-tools` from the plugin directory's own
+  `node_modules` before the Host's module routing. The entry tries the bare specifier
+  first and falls back to a **parameter-schema-compiling** shim, so the provider always
+  receives an object-rooted parameter schema. Never leave a test-only
+  `node_modules/@deepseek-ai/dsh-tools` shim in a link-installed package: an identity
+  shim hands the model raw parameter maps, and the provider rejects the whole request
+  with `schema must be a JSON Schema of 'type: "object"', got 'type: null'` (observed
+  on `goal_gate_audit`, which has an empty parameter map).
 
 ## 8. What the 0.6.x release got wrong
 
@@ -102,7 +107,10 @@ only its **deny** path was exercised end-to-end. On 0.2.1-rc.2:
 1. schema-only `output` → every successful tool call failed (`userRender is not a function`);
 2. `c.register` instead of `c.commands.register` → no slash command ever registered;
 3. `{ hint: '' }` → registration rejected even after (2) was fixed;
-4. property-level `required` / `type:'json'` in output schemas → registration rejected.
+4. property-level `required` / `type:'json'` in output schemas → registration rejected;
+5. a leftover test shim in the link-installed package shadowed the real `defineTool` →
+   parameter schemas had no root `type`, and every request failed with
+   `schema must be a JSON Schema of 'type: "object"', got 'type: null'`.
 
 v0.7.0 fixes all four; `test/wiring_test.mjs` now asserts render presence, the output
 schema subset invariant and optional non-empty hints, and the registry harness above

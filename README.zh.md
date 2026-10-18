@@ -185,7 +185,7 @@ AC-N | <yes/no 判定语句> | check: `<可失败命令>` | [probe: `<仪器检�
 <abs-node> test/run-local.mjs
 ```
 
-真实 `@deepseek-ai/dsh-tools` 在 Host 内、Host 外不可 import；测试运行器把最小 `defineTool` shim 复制进 `test/fixtures/dsh-tools-shim`。套件覆盖判定内核、接线（全部工具/命令/skill）、账本/审计/盖章、红队防线、纯度、无 commands 服务的装载安全，以及 v0.7 面（保险丝、任务板声明、派工、效率、reset）。真实宿主注册契约（render、输出 schema 子集、命令 fiber、skill）已对 0.2.1-rc.2 解包产物验证；见 `docs/platform-contract.md`。
+真实 `@deepseek-ai/dsh-tools` 在 Host 内、Host 外不可 import；入口回退到会编译参数 schema 的 shim。测试**绝不**把 `node_modules/@deepseek-ai/dsh-tools` shim 写进包目录：`link:` 安装时它会赢得模块解析，Host 注册到未编译的参数 schema（provider 报 `type: null`）。套件覆盖判定内核、接线（全部工具/命令/skill、provider 可见参数 schema）、账本/审计/盖章、红队防线、纯度、无 commands 服务的装载安全，以及 v0.7 面（保险丝、任务板声明、派工、效率、reset）。真实宿主注册契约已对 0.2.1-rc.2 解包产物验证；见 `docs/platform-contract.md`。
 
 ## 许可
 
