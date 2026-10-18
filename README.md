@@ -1,19 +1,28 @@
 # dsh-goalloop-agentteams
 
-**Deterministic goal-completion gate for DeepSeek Harness** — ports the *judging face* of the [goal-loop](https://github.com/samirliu/goal-loop) skill onto native **Agent Teams** + the **task board**, and drives the full agentic loop from one trigger.
+**goal-loop as a DeepSeek Harness plugin** — the *judging face* of the [goal-loop](https://github.com/samirliu/goal-loop) skill, wired into native **Agent Teams**, the **task board**, and DSH's completion-interception pipeline. The skill itself ships as two runtime skills (`goal-loop`, `goal-loop-contract`) so the model knows the protocol; the plugin makes the protocol enforceable.
 
-Contract-first acceptance criteria, a gate that **re-runs every check itself** (zero model trust), verdicts bound to a tree digest, and a hard deny on false completion at `update_goal` / `agent_teams_update_task` / `team_task_update` via `tools/pre-execute`. The portable team-file protocol and dual-ledger bookkeeping from goal-loop are deliberately *not* ported — native Agent Teams is strictly stronger.
+Contract-first acceptance criteria, a gate that **re-runs every check itself** (zero model trust), a human approval stamp that freezes done, verdicts bound to a content digest, and a hard deny on false completion at `update_goal` / team-task / task-board surfaces via `tools/pre-execute`. The portable team-file protocol and dual-ledger bookkeeping are deliberately *not* ported — native Agent Teams is strictly stronger.
 
-**Trigger the loop:** `/goal-loop-at <objective>` (or the `goal_loop_at` tool) writes the contract + round config, returns the loop protocol and suggested Agent Teams tasks derived from each AC. Iterate via `goal_gate_check` (score, trend, failedActions), claim completion only on GO.
+**v0.7.0 — trust fixes + full loop surface.** Highlights since 0.6.2:
+
+- **BROKEN is decisive.** Missing instrument (rc 127), failed probe, metric miss, unmatched `sd:`/`var:`, unbound/stale judged evidence, missing judge and calibration defects are `broken` → NO-GO; they can no longer hide inside the “≤1/3 unverifiable” allowance.
+- **R3 approval stamp.** `goal_gate_stamp` / `/goal-stamp` freezes the contract and budgets; any later edit makes completion claims fail as `contract-revised` until an explicit re-stamp.
+- **Content-bound digests.** Same-size edits change the digest; a check that mutates the workspace is refused as `check-mutated-tree`; build-output directories are no longer silently excluded.
+- **Objective surface.** `minimize`, `!=`, data-driven `sd:`/`var:` noise bands, first-run baseline establishment, and per-round `efficiency` with strategy attribution.
+- **Budgets are fuses.** Round and wall-clock budgets bind at stamp and deny non-GO completion claims; `goal-reset --new-loop` is the human recovery path.
+- **DSH-native.** `task_board_manage` `move-done` is intercepted; `dispatch:true` and `goal_gate_dispatch` create real native Agent Teams tasks for a Team Lead; read-only `goal_gate_status` / `goal_gate_audit`.
+- **Packaged skills + commands.** The two skills appear in the session skill catalog; `/goal-loop-at`, `/goal-gate`, `/goal-stamp`, `/goal-audit`, `/goal-reset` are registered.
 
 ## 中文简介
 
-**dsh-goalloop-agentteams** 是面向 DeepSeek Harness 的**确定性目标门控 + 目标闭环**插件：
+**dsh-goalloop-agentteams** 把 goal-loop skill 做成 DeepSeek Harness 插件：**判命面**由确定性门控执行（模型永不自宣完成），**闭环面**接入原生 Agent Teams / 任务板，**知识面**是运行时注册的两个 skill。
 
-- **判命面**：契约先行的 AC 文法，门控自己重跑每条 check（零模型参与），verdict 绑定文件树摘要（文件改动即作废过审结论），目标级假完成 2 次即 `BLOCKED` 等人——模型永远不能自我宣布完成。
-- **闭环面**：`/goal-loop-at <目标>` 一条命令触发完整 agentic loop——写契约骨架 + 轮次预算（`loop.json`）+ 循环协议 + 从每条 AC 派生的 Agent Teams 建议任务；`goal_gate_check` 输出 `score`/趋势/`failedActions`，**score 不得回退**，NO-GO 的失败项直接变 repair 任务。
-- **评估面**：`maximize` 按基线判定（`baseline: delta` 严格改善 / `abs` 不回退）、`judged` 以 probe 为确定性判官、`metric:` 正则提取指标、Goodhart 三防线（unverifiable ≠ passed / 判官缺失 / 基线未建）。
-- **分级治理**：`update_goal` 完成声明永远硬拦；任务级声明按 `exit: strict|goal-only` 分级，多任务 Agent Teams 循环不会死锁。
+- **门控**：自己重跑每条 AC 的 check（零模型参与）；`broken`（仪器坏了、判官缺失、证据失联、取数失败）是决定性 NO-GO；只有门控能发 GO。
+- **R3 盖章**：`goal_gate_stamp` / `/goal-stamp` 冻结契约与预算；盖章后改契约，完成声明一律 `contract-revised`，重新批准才放行。
+- **证据绑定**：judged 评审必须含 `artifact:` + `digest: sha256:`，`calib:` 还要求 `calib-good: PASS` / `calib-bad: FAIL`；检查自己改工作区（`check-mutated-tree`）判无效——测量产物请写 `.goal-gate/evidence/`。
+- **闭环**：`/goal-loop-at <目标>` 建契约骨架 + 轮次配置 + 协议 + 建议任务；`score` 不回退、轮次/墙钟预算到点停、假完成 2 次 BLOCKED（人类 `/goal-reset` 才解）。
+- **分级治理**：`update_goal(complete)` 永远硬拦；任务级完成声明按 `exit: strict|goal-only` 分级；`task_board_manage move-done` 同样受管——多任务循环不会死锁，也不会绕过门控。
 
 完整中文文档见 [README.zh.md](README.zh.md)。
 
@@ -26,95 +35,173 @@ DSH already has two layers of completion judgement — but neither is a determin
 | `dsh-agent-teams` quality kinds | Did each step follow its contract | `verify` commands are **not re-executed** by the runtime; `commandsRun` exit codes are member-supplied |
 | `dsh-task-board` acceptance gate | Does it look right semantically | LLM A/B comparison (threshold 0.65) — and **every card can opt out** via `skipVerification` |
 
-`dsh-goalloop-agentteams` is the hard floor underneath both: it re-runs every AC's `check` command itself, binds verdicts to a tree digest, and counts caught false-completes — two catches → `BLOCKED`. Deterministic gate = floor, LLM judge = semantic layer, quality kinds = step contract. Stacked, they close the loop.
+`dsh-goalloop-agentteams` is the hard floor underneath both: it re-runs every AC's `check` command itself, binds verdicts to a content digest, and counts caught false-completes — two catches → `BLOCKED`. Deterministic gate = floor, LLM judge = semantic layer, quality kinds = step contract. Stacked, they close the loop.
+
+## Install / 安装
+
+```sh
+dsh plugin --profile <profile> add dsh-goalloop-agentteams
+```
+
+Or from a checkout / GitHub:
+
+```sh
+dsh plugin --profile <profile> add /path/to/dsh-goalloop-agentteams
+dsh plugin --profile <profile> add github:samirliu/dsh-goalloop-agentteams
+```
+
+The package declares `dsh.bundle` with a `cordis.patch.yml` beside it, so `dsh plugin add` mounts the `goal-gate` row directly. Restart the profile after install (host code, commands and skills are composed at boot).
+
+⚠️ **Entry contract:** the entry must export `name` equal to the `cordis.patch.yml` id (`goal-gate`) alongside `inject` and `apply`. A missing `name` makes the Host silently skip the bundle. `link:` installs additionally may resolve `@deepseek-ai/dsh-tools` differently than registry installs; the entry tries the bare package first and falls back to a same-shape shim, and both paths are exercised by tests.
+
+## Plugin config / 插件配置
+
+`cordis.patch.yml` mounts the row with `config: {}`; add any of these keys to tune it:
+
+| Key | Default | Meaning |
+|---|---|---|
+| `maxRounds` | `8` | Default round budget for a new loop |
+| `requireStamp` | `false` | Refuse completion claims until the contract is approved |
+| `requireHumanApproval` | `false` | Route `goal_gate_stamp` through the DSH approval seam (`ask`) |
+| `intercept` | `true` | Mount the `tools/pre-execute` completion interceptor |
+| `registerSkills` | `true` | Register the `goal-loop` / `goal-loop-contract` runtime skills |
+
+## Quick start / 快速开始
+
+```text
+/goal-loop-at ship csv2jsonl with hard row validation and docs
+```
+
+or let the model call `goal_loop_at({objective, acs?, maxRounds?, dispatch?})`. Then run the four-step loop:
+
+1. **Contract.** Load the `goal-loop-contract` skill when criteria are fuzzy. Each AC is one line: a yes/no statement plus a check that can actually FAIL. At least one AC must execute the deliverable itself at runtime. Present the one-screen summary.
+2. **Approve + stamp.** The user approves; the model calls `goal_gate_stamp({approvedBy, maxRounds?, timeBudgetMinutes?})`, or the user types `/goal-stamp`. The stamp freezes the contract; editing it later voids the approval.
+3. **Dispatch.** Native Agent Teams (`spawn_teammate` / `team_task_create`) first, task-board cards (`task_board_create`) when teams are unavailable, solo otherwise. `goal_loop_at({dispatch:true})` creates one team task per AC for a Team Lead; `goal_gate_dispatch` turns current failures into repair tasks. Disjoint write scopes; freeze interfaces first.
+4. **Join + gate.** `goal_gate_check({strategy?, note?})` is the only completion authority. NO-GO → repair from `failedActions`, check again. GO → `goal_gate_audit` → deliver. Two caught false goal-completes → `BLOCKED`; only a human `/goal-reset` clears it.
+
+## Tool surface / 工具面
+
+| Tool | Purpose | Key result fields |
+|---|---|---|
+| `goal_loop_at` | Start the loop: contract skeleton + `loop.json` + protocol + tasks | `created`, `contractPath`, `maxRounds`, `tasks`, `protocol`, `preflight`, `dispatch` |
+| `goal_gate_init` | Skeleton only (no loop config) | `created`, `path`, `alreadyExisted` |
+| `goal_gate_stamp` | Freeze the approved contract and budgets (R3) | `stamped`, `code`, `stamp`, `approvedBy`, `approvedAt`, `maxRounds`, `timeBudgetMinutes`, `restamped` |
+| `goal_gate_check` | Re-run every check; the only GO authority | `rc`, `code`, `score`, `totals`, `results`, `round`/`maxRounds`, `bestScore`, `regression`, `trend`, `failedActions`, `neverFailed`, `preflight`, `efficiency`, `timeRemainingMinutes`, `digestBefore`/`digestAfter` |
+| `goal_gate_status` | Read-only status: no checks, no round burned | contract/stamp/approval, loop, counters, digest, last checks, stale flags, budgets |
+| `goal_gate_audit` | Read-only pre-claim audit: contract/stamp/digest/last-GO consistency | `ok`, `violations`, `warnings`, `recommendations` |
+| `goal_gate_dispatch` | Create native Agent Teams repair tasks for failing/broken ACs (suggestions for non-Leads) | `gate`, `dispatched`, `failed`, `reason`, `suggestions` |
+
+Commands: `/goal-loop-at <objective>`, `/goal-gate` (status), `/goal-stamp [--restamp] [--max-rounds=N] [--time-budget-minutes=N] [approvedBy]`, `/goal-audit`, `/goal-reset [--new-loop] [reason]`.
+
+Runtime skills: **`goal-loop`** (the playbook) and **`goal-loop-contract`** (contract forge / stamp checklist). They are registered with `ctx.skills.register` and appear in the model's skill catalog; no filesystem install is needed.
 
 ## Contract grammar / 契约文法
 
 ```
 objective: <one-line goal>
-[exit: goal-only | strict]
-AC-1 | <yes/no statement> | check: `<command>` | [probe: `<probe>`] | [metric: `<regex with one capture group>`] | [baseline: delta|abs] | expected: <spec>
-AC-2 | ... | check: `...` | expected: exit=0
+deliverable: <path to the artifact itself>
+exit: goal-only | strict
+AC-N | <yes/no statement> | check: `<failable command>` | [probe: `<instrument check>`] | [metric: `<regex, one capture group>`] | [baseline: delta|abs] | [timeout: <seconds>] | [tolerance: <relative>] | [sd: `<regex>`] | [var: `<regex>`] | [calib: good=<file> bad=<file>] | expected: <spec>
 ```
 
-Spec = `exit=0` | `<op><number>` (`<=5`, `>0`, `=3`) | `maximize` | `judged`.
-Every `check` must be a **named, failable command** — include the environment dependency, the empty case, the error path — or the gate degrades into a tautology.
+Specs: `exit=0` | `exit=N` | `<=N` | `>=N` | `<N` | `>N` | `=N` | `!=N` | `maximize` | `minimize` | `judged`.
 
-- `[probe:]` is *verify-the-verifier* (R9): the probe runs first; a probe failure marks the AC `unverifiable` rather than `passed`. More than 1/3 unverifiable → the whole gate returns NO-GO.
-- `[metric:]` extracts the metric value from stdout (one capture group). Without it the gate falls back to the last number in the output — write `metric:` whenever the output contains other numbers.
-- `maximize` compares against the previous round's metric: `baseline: delta` requires strict improvement, `baseline: abs` (default) requires no regression. The first run has no baseline → `unverifiable` (run `goal_gate_check` once to establish it).
-- `judged` uses the `probe` as a deterministic judge — the probe's exit code *is* the verdict. Without a probe, or when the judge command is missing (exit 127), `judged` is `unverifiable` (a broken verifier is not a failing verdict).
-- Contract lives at `.goal-gate/goal.md` in the workspace root.
+- **One AC per line, fixed token order.** A line that starts with `AC-N` but does not parse makes the gate refuse the whole contract (`state-error`); a leading `- AC-N` list marker is accepted. Duplicate AC ids are refused.
+- **`probe:`** runs first for numeric/optimization ACs and must pass; for `judged` it is the judge (exit code = verdict). A failed probe is `broken`, never `passed`.
+- **`metric:`** extracts one capture group from stdout (ANSI stripped); without it the last number is used. Missing required metric = `broken`.
+- **`maximize` / `minimize`** compare against the previous **accepted** value; the first run establishes the water mark and passes. `baseline: delta` demands strict improvement, `abs` (default) forbids regression. `tolerance:` is a relative noise band; `sd:`/`var:` widen it to `max(2*spread/|prev|, tolerance)` (`var:` is square-rooted); declared-but-unmatched spread is `broken`.
+- **`judged`** requires the verdict to carry `artifact: <path>` and `digest: sha256:<64hex>` (recomputed by the gate). Unbound, stale or unreadable evidence is `broken`. With `calib: good=<f> bad=<f>` the verdict must also carry `calib-good: PASS` and `calib-bad: FAIL`, and both fixtures must exist.
+- **Evidence produced by checks** (renders, logs, judge inputs) belongs under `.goal-gate/evidence/` — it is excluded from the digest. Checks that write anywhere else in the workspace fail the round as `check-mutated-tree`.
+- **`deliverable:`** is advisory in the gate but drives preflight: a contract with no check touching the deliverable and no runtime AC gets `deliverable-unverified` / `no-runtime-ac` warnings before a round is burned.
 
-## Gate & interception / 门控与拦截
+## Gate semantics / 门控语义
 
-`goal_gate_check` re-runs every check itself:
+`goal_gate_check` returns `rc=0` GO, `rc=2` NO-GO, `rc=3` BLOCKED, `rc=4` state error. Every round is appended to `.goal-gate/history.jsonl`.
 
-- `rc=0` GO / `rc=2` NO-GO / `rc=3` BLOCKED / `rc=4` state error
-- Output carries the optimization signal: `score` (passed/total), `round` / `maxRounds` / `remainingRounds`, `bestScore`, `regression` (score dropped below the high-water mark), `trend` (last 5 rounds), `failedActions` (per-AC repair list)
-- Interception is mounted on `tools/pre-execute` with **claim scoping**: `update_goal(action:'complete')` (the goal-level claim) is *always* hard-gated against the full contract with the R1 false-complete counter. Task-level claims — `agent_teams_update_task(status:'completed')`, `team_task_update(action:'complete')`, legacy `update_task(status:'completed')` — follow the contract's `exit:` policy:
-  - `exit: strict` (default): full-contract hard gate + strike (single work unit: task completion *is* goal completion)
-  - `exit: goal-only` (what `goal_loop_at` writes): mid-loop task progress passes (step-level truth belongs to quality-kind contracts); GO binds a digest, NO-GO is recorded as `partialCompletes` only. Without this split, every multi-task team deadlocks: a member finishing its own task is denied because teammates' ACs are still failing
-  - `BLOCKED` (two caught false goal-completes) freezes every completion claim
+| Status | Meaning | Effect on GO |
+|---|---|---|
+| `passed` | check met the named spec | counts toward `score` |
+| `failed` | check ran and the artifact does not meet the spec | NO-GO |
+| `broken` | the **instrument** is broken: 127/timeout/signal, failed probe, metric/spread miss, missing judge, unbound/stale evidence, broken calibration, unroutable spec | **NO-GO (decisive)** |
+| `unverifiable` | genuinely not measurable yet (soft status) | allowed only up to 1/3; reported as `note` |
 
-## Goal loop / 目标闭环（right loop · right eval · right metric）
+Additional outputs: `score` (passed/total), `bestScore` (high-water), `regression` (score dropped), `trend` (last five), `efficiency` (`scoreDelta`, `slope`, per-`strategy` attribution), `digestBefore`/`digestAfter` (a check that moved the tree returns `check-mutated-tree`), `timeRemainingMinutes`, `timeExhausted`.
 
-`/goal-loop-at <objective>` (slash command) or `goal_loop_at` (tool) starts the loop:
+## Approval, budgets and blockers / 批准、预算与阻塞
 
-1. writes the contract skeleton (placeholder checks are fail-closed `TODO-REPLACE-ME`) and `.goal-gate/loop.json` (`maxRounds`, default 8);
-2. returns the loop protocol and suggested Agent Teams tasks derived from each AC;
-3. every gate evaluation is appended to `.goal-gate/history.jsonl` (`ts/trigger/round/code/score/totals/failed ACs`) — the trajectory the loop optimizes against;
-4. NO-GO → turn `failedActions` into repair tasks, re-check; never claim completion before GO. Two caught false-completes → `BLOCKED` (human). The round budget counts optimization iterations only (check / completion-claim evaluations) — goal-only milestone records don't consume it; budget exhausted → `roundsExhausted`, stop and escalate.
+- **R3 stamp.** `goal_gate_stamp({approvedBy, maxRounds?, timeBudgetMinutes?, restamp?, note?})` writes the approval to `state.json` and may bind the budgets. A contract edit changes its stamp; completion claims are denied `contract-revised` until `restamp:true` (or `/goal-stamp`).
+- **`requireStamp: true`** in plugin config makes an approved stamp mandatory before any completion claim (default `false`; the stamp remains recommended and is what `/goal-loop-at`'s protocol asks for).
+- **`requireHumanApproval: true`** makes `goal_gate_stamp` itself go through the DSH approval seam (`{kind:'ask'}` in `tools/pre-execute`). Under an approval policy of `never` this fails closed — the default is `false` so headless loops still work.
+- **Round budget** (`maxRounds`, default 8) and **wall-clock budget** (`timeBudgetMinutes`) are fuses: a non-GO completion claim at/over budget is denied (`rounds-exhausted` / `time-budget`). Green delivery is never confiscated at the time fuse.
+- **False-complete ratchet:** a denied `update_goal(complete)` means the artifact is not done. Two denied goal-completes → `BLOCKED`; all claims freeze. `/goal-reset [--new-loop]` is the human-only recovery (there is deliberately no model-facing reset tool).
+- **Loop identity:** a second `goal_loop_at` with a different objective refuses (`objective-drift`); changing the objective is changing the definition of done, so edit + re-approve or start a fresh workspace/loop.
 
-Self-optimization rule: `score` must not regress (`regression: true` → fix the regression first); `maximize` ACs with `baseline: delta` require strict metric improvement round over round.
+## Interception / 完成声明拦截
 
-**Loop driver fallback / 循环驱动兜底**: a resumed session may lack the `goal_gate_*` tools — drive the loop from any session via `bin/gate.mjs check --cwd <workspace>` (absolute-path node), same ledger, same output shape. **Eval hardening**: `preflight` flags fragile check commands (bare `node`/`python`, relative interpreters, tautology suspects) and `neverFailed` lists ACs that have never failed (suspected tautologies).
+Mounted on `tools/pre-execute`; always returns structured `{kind:'deny'}` (never `throw`):
 
-## Three hard constraints / 三条硬约束（实测所得）
+- `update_goal(action:'complete')` — always hard-gated by the full contract, with the R1 counter.
+- Task-level completion — `agent_teams_update_task(status:'completed')`, `team_task_update(action:'complete')`, legacy `update_task`, and **`task_board_manage(action:'move-done')`**. Under `exit: strict` they are gated like a goal claim; under `exit: goal-only` they are recorded (`partialCompletes`) and pass, so multi-task team loops do not deadlock on teammates' unfinished ACs. `BLOCKED` freezes every claim.
+- Before running the gate it checks approval freshness (`contract-revised`) and, when configured, `requireStamp` (`unstamped`). A malformed contract is denied as `state-error`; no contract at all passes through.
 
-From an ordering probe (`tools/pre-execute` waterfall semantics, real deny-return shape):
+## Dispatch / 派工
 
-1. **Waterfall is first-registered-first-block.** Only the earliest registered layer's deny reason reaches the user; later layers are never called. So the reason must carry its own `code` (`[goal-gate:no-go]` / `verdict-stale` / `blocked`) — otherwise the user can't tell which layer blocked.
-2. **`deny` and `throw` are different propagation mechanisms and must not be mixed.** `dsh-agent-teams`'s quality-gate rejects by `throw`ing, which blows through the waterfall and hands the caller an exception; the task board returns a structured `{kind:'deny'}`. This plugin always uses structured `deny` — never `throw` — so its error path stays distinct from quality-gate exceptions.
-3. **Digest binding must be self-built.** DSH has no verdict↔file-tree binding anywhere (only state-key hashes). This plugin stores the digest and re-computes it before denying, so a passing verdict is voided automatically when the tree moves (R7).
+- `goal_loop_at({dispatch:true})` creates one native Agent Teams task per AC when the caller is a Team Lead (`ctx.agentTeams`); other callers get `suggestions` instead of a fake success.
+- `goal_gate_dispatch({includeUnverifiable?})` re-runs the checks **without recording a round** and creates tasks for `failed`/`broken` (and optionally `unverifiable`) ACs. Each task description carries the exact command and spec.
+- Without a Teams service, use `task_board_create` / solo work. The plugin never writes the task-board ledger directly.
 
-## R7 digest caveat / R7 摘要的坑（已修）
+## Read-only status and audit / 只读状态与审计
 
-If `treeDigest` walks the ledger directory, writing the ledger changes the digest → the gate spuriously invalidates its own verdicts and R1's false-complete counter never reaches 2. Fixed: the digest excludes `.goal-gate`, `node_modules`, `.git`.
+- `goal_gate_status({includeHistory?})` / `/goal-gate`: contract/stamp/approval, loop, counters, digest and bound digest, round/time budgets, idle status, recent history. It runs **no checks** and burns no round.
+- `goal_gate_audit({})` / `/goal-audit`: contract parses, stamp matches, not BLOCKED, last evaluation is GO under the current contract, digest not stale, preflight/never-failed advisories, budget state. `violations` must be empty before claiming completion.
+- Want current truth? That is `goal_gate_check` — an experiment that costs a round. A no-change re-evaluation is named `duplicate-evaluation`.
 
-## Interpreter constraint / 解释器约束
+## Fallback CLI / bash 兜底
 
-The DSH Host bundles Node 24.21.0 (`runtime/primary-runtime/dependencies/node/bin/node`). A `node` on `PATH` may be broken (e.g. SIGKILL on launch). Plugins run inside the Host runtime — **never write a bare `node`** in a gate script; if you must spawn a child, resolve it via `config.node ?? process.execPath` (the pattern `dsh-skill-office` uses).
-
-## Install / 安装
+A resumed session may lack the plugin's tool table. The same ledger and the same gate are reachable from any shell (resolve the absolute Node path from `process.execPath` or plugin config — **never write a bare `node`**):
 
 ```sh
-dsh plugin add dsh-goalloop-agentteams
+<abs-node> <plugin>/bin/gate.mjs check   --cwd <workspace> [--strategy <s>] [--note <n>]
+<abs-node> <plugin>/bin/gate.mjs status  --cwd <workspace>
+<abs-node> <plugin>/bin/gate.mjs audit   --cwd <workspace>
+<abs-node> <plugin>/bin/gate.mjs stamp   --cwd <workspace> [--approved-by <who>] [--max-rounds <n>] [--time-budget-minutes <n>] [--restamp]
+<abs-node> <plugin>/bin/gate.mjs reset   --cwd <workspace> [--new-loop]
+<abs-node> <plugin>/bin/gate.mjs preflight --cwd <workspace>
 ```
 
-Or from source: the repo declares `dsh.bundle` in `package.json` with a `cordis.patch.yml` beside it, so `dsh plugin add` picks it up directly. `apply(ctx, config)` registers the `goal_loop_at` / `goal_gate_init` / `goal_gate_check` tools, the `/goal-loop-at` / `/goal-gate` commands, and the `tools/pre-execute` listener.
+## DSH host contract notes / 宿主契约（0.2.1-rc.2 实测）
 
-⚠️ **Entry contract (learned the hard way):** the entry must export `name` — equal to the `id` in `cordis.patch.yml` — alongside `inject` and `apply`. A missing `name` makes the Host **silently skip the bundle**: no tools, no interception, no error anywhere. Shim-based tests cannot catch this; verify tool registration against a restarted Host.
+- Every tool declares `output.render`; `defineTool` installs the wrapper and calls it on success. A schema-only output registers but every successful call fails `output.render failed: userRender is not a function` — the 0.6.x silent breakage.
+- Output schemas must live in the supported JSON Schema subset: no author-only `type:'json'`, no property-level `required: true`, and every `object` states `additionalProperties`. Shared constant schemas are used for nullable objects.
+- `ctx.inject(['commands'], (c) => …)` receives a child **Context**; register through `c.commands.register(...)`, and omit `input` rather than declaring an empty hint.
+- Skills are registered in-memory with `ctx.skills.register({name, description, content, source, …})`; DSH does not scan a package's `skills/` directory.
+- Workspace root comes from `exec.agent.session.header.cwd`; there is no `exec.session` / `exec.cwd`.
+- The native Agent Teams service is `ctx.get('agentTeams')` (optional, never `inject`); its tasks are the `team_task_*` tools, not `agent_teams_*`.
 
-## Tests / 测试
-
-```sh
-node test/run-local.mjs
-```
-
-The real `@deepseek-ai/dsh-tools` lives inside the DSH Host and is not importable outside it, so the runner injects a minimal `defineTool` shim from `test/fixtures/dsh-tools-shim` for the duration of the run.
+`docs/platform-contract.md` records the verified evidence and probe method.
 
 ## Mapping to goal-loop / 与 goal-loop 的对应
 
 | goal-loop | This plugin |
 |---|---|
-| AC contract grammar + sha1 stamp | `parseContract` / `contractStamp` (R3) |
-| `goal_gate.sh --check` re-run | `runGate` (R9 probe + expected-spec judgement) |
-| digest-bound verdicts (R7) | `treeDigest` + `verdict-stale` deny |
-| R1 false-complete count → BLOCKED | `falseCompleteRule` |
-| `/goal-loop-at` trigger + loop orchestration | `goal_loop_at` tool / `/goal-loop-at` command + `loop.json` round budget |
-| metric trajectory / self-optimization | `history.jsonl` + `score` / `bestScore` / `regression` |
-| `goal_team.sh` portable layer + dual ledger | **dropped** — use native Agent Teams + task board |
+| AC contract grammar + `approved:` stamp | `parseContract` + `goal_gate_stamp` / `/goal-stamp` (R3) |
+| `goal_gate.sh --check` re-run, BROKEN/FAIL/PASS | `runGate` fail taxonomy + `probe` + expected specs |
+| digest-bound verdicts (R7) | content-hash `treeDigest` + `check-mutated-tree` + digest-bound claims |
+| R1 false-complete count → BLOCKED | `falseCompleteRule` + `goal-reset` (human) |
+| objective water mark / `sd:`/`var:` | `maximize`/`minimize` baselines + tolerance/spread bands + `efficiency` |
+| judged seat + `calib:` | artifact+sha256 binding + `calib-good`/`calib-bad` grades |
+| `/goal-loop-at` trigger + loop budget | `goal_loop_at` / `/goal-loop-at` + `loop.json` + round/time fuses |
+| `goal_audit.sh` ledger audit | `goal_gate_audit` / `/goal-audit` |
+| crew/work-plan/roster/inbox/Teams backend | **dropped** — native Agent Teams + task board + `goal_gate_dispatch` |
+| contract-forge companion | runtime skill `goal-loop-contract` |
+
+## Tests / 测试
+
+```sh
+<abs-node> test/run-local.mjs
+```
+
+The real `@deepseek-ai/dsh-tools` lives inside the DSH Host and is not importable outside it, so the runner copies a minimal `defineTool` shim from `test/fixtures/dsh-tools-shim`. The suite covers core judgement, wiring (all tools/commands/skills), ledger/audit/stamp, red-team defences, purity, load-safety without commands, and the v0.7 surfaces (fuses, task-board claims, dispatch, efficiency, reset). The real-host registration contract (render, output-schema subset, command fiber, skills) is verified against the extracted 0.2.1-rc.2 packages; see `docs/platform-contract.md`.
 
 ## License / 许可
 

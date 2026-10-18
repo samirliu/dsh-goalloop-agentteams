@@ -23,6 +23,21 @@
 | 14 | state-error 烧轮 | 契约畸形/零评估的轮照烧预算,"验证器坏了"能把预算烧光都跑不了一次真实验 | history 中 state-error 行记账保留(可审计)但不参与轮次计数 | ledger:三连错后正常实验轮次零被吞 |
 | 15 | 时间面失明 | 循环停摆(数小时无评估)与单纯慢在账本和返回值里完全不可见,墙钟只能口头承诺 | recordRun 落 lastRunAt(旧账本回落 loop.createdAt);loopIdleStatus/idleWarning:active 超阈(默认可配 4h)→ loop-idle 黄牌,suspended 视为诚实等待;runGate 自计时 ms 进账本与返回 | ledger:idle 三向/lastRunAt/ms;smoke:ms 存在 |
 | 16 | 重评静默烧轮 | goal_gate_check 每次都是实验(记账烧轮),"只想再看一眼结论"也悄悄烧一轮且无人点名 | duplicateEvalNote:与上一次同盖戳/同分值/同失败集的结论点名"重评不改变事实;复查走只读入口";协议文本同步"每契约状态一次检查" | ledger:同结论点名/变则放行/错误不点名 |
+| 17 | **unverifiable 稀释 GO** | 缺仪器(127)、probe 失败、取数失败、无判官、不支持 `minimize`/`!=` 全被归为 `unverifiable`;3 条 AC 里 1 条坏 + 2 条地板 → rc=0 GO(score 0.67) | 引入 `broken` 状态(决定性 NO-GO):仪器/判官/证据/取数故障一律 broken;GO 要求 failed=0 且 broken=0;≥1/3 的 unverifiable 仍 NO-GO | smoke:broken-vs-unverifiable;redteam 四向 |
+| 18 | AC 静默丢失 | goal-loop 原生 `- AC-1 \| ...` 行不被识别;混合契约丢掉带 dash 的失败 AC 还能 GO;重复编号被接受 | 解析兼容可选 `- ` 前缀;重复 AC 编号 state-error;contractStamp 覆盖 dashed 行 | smoke:dashed / duplicate / dashed-stamp |
+| 19 | 基线冻结 | recordRun 用 `r.id === 'AC-1#hash'` 查状态,永远 undefined → 基线停在首轮观测(10→20→15 仍 10),回退检测失效 | 按 `#` 前 AC 编号匹配结果;只有 passing 轮推进基线 | smoke:基线推进/失败不拉低;ledger 回归 |
+| 20 | 摘要失明 | digest 只哈希 path+size → 同尺寸编辑不可见;排除 dist/build/out 可能藏交付物;检查改树仍 GO | 2MB 内内容哈希(更大用 size+mtime);只排除账本/依赖/git/DSH;runGate 前后摘要对比,改树 → `check-mutated-tree` | smoke:同尺寸编辑 / mutating check |
+| 21 | R3 盖章是装饰 | contractStamp 只算不比对;改 AC 仍 GO;没有批准入口 | `goal_gate_stamp` / `/goal-stamp` 记录批准+预算;契约变更 → 完成声明 `contract-revised`,restamp 才能放行 | v07:R3 stamp 全流程 |
+| 22 | 预算是建议 | roundsExhausted 只报不拦;BLOCKED 无恢复路径;state.json 非原子写 | 轮次/墙钟到点拒绝非 GO 完成声明;`/goal-reset` 人类恢复;state 原子 rename | v07:fuses / reset;ledger:atomic |
+| 23 | 任务板绕过门控 | `task_board_manage(action:'move-done')` 不在拦截名单 | 加入 completion claim 集合,按 strict/goal-only 治理 | v07:task board move-done |
+| 24 | **成功返回全部失败(真实宿主)** | 0.6.x 的 output 只有 schema、没有 render;0.2.1-rc.2 的 defineTool 安装 wrapper 并在成功时调用 → 每次成功调用 `output.render failed: userRender is not a function`;deny 路径不渲染,所以"看起来在工作" | 每个工具声明共享 `renderJson`(JSON text block) | wiring:render 存在/可调用;真实 registry harness 全工具成功返回 |
+| 25 | **命令从未注册** | `ctx.inject(['commands'], c => c.register(...))` 的 c 是子 Context → 读 `c.register` 抛 "cannot get property";空 `input.hint:''` 又被 register 拒绝 | `c.commands.register(...)`;无参命令省略 `input`;followup 使用完整 UserMessage | wiring + 真实 commands fiber:5 个命令在 list 中 |
+| 26 | 输出 schema 越界 | 属性级 `required:true` 与 author-only `type:'json'` 不在受支持子集 → register 直接拒绝或成功调用校验失败 | 输出 schema 只用受支持子集;可空对象用 `oneOf:[object,null]` | wiring:递归 schema 断言;真实 harness |
+| 27 | 首轮水位判定 | goal-loop 的数值语义是首轮建立水位即 PASS;插件判 unverifiable,叠加 17 会稀释 GO | maximize/minimize 首轮 PASS 并写入基线;delta 从第二轮生效 | smoke:基线闭环 |
+| 28 | 目标面缺件 | 无 `minimize` / `!=` / `sd:` / `var:`,无法表达最小化目标与数据噪声 | 全部解析与判定;声明了 spread 却匹配不到 = broken;噪声带 `max(2*spread/|prev|, tolerance)` | smoke:minimize/!=/sd/spread-miss |
+| 29 | 循环身份漂移 | goal_loop_at 复用旧 loop.createdAt;目标变了却沿用旧契约/轮次/历史 | 目标不一致 → `objective-drift`;只有新建契约才换 loop 时钟 | v07:objective drift |
+| 30 | CLI 状态字段错 | `bin/gate.mjs status` 把 stamp 报成 AC 数量 | 改为真实 contractStamp;补齐 audit/stamp/reset/status | ledger:gate.mjs CLI;v07 |
+| 31 | 证据目录无家 | 检查写工作区会被 20 的 mutation guard 判无效,但没有文档化的证据目录 | `.goal-gate/evidence/`(摘要排除);judged artifact 可指向交付物本体或证据文件 | skill 文档 + smoke:check-mutated-tree |
 
 ## 质量演进
 
@@ -32,6 +47,10 @@
 - **鲁棒性**(v0.3.0+):bash 可达的门控 CLI(binp/gate.mjs)、裸运行时/相对解释器预检、永真式点名
 - **接线**(v0.2.x):真实工具名接线、入口 name 契约、link: 安装的模块解析链
 - **时间与诚实性**(v0.6.2):门控自计时、最近评估时钟、loop-idle 检测、重评点名、错误不烧轮——墙钟进账本,不再靠口头
+- **判定信任**(v0.7.0):broken 分类(仪器坏 = 决定性 NO-GO)、内容摘要、R3 盖章、`- AC-` 兼容、重复编号拒绝、首轮水位与最小化
+- **闭环保险丝**(v0.7.0):轮次/墙钟预算绑定盖章并拦截、人类 reset、objective-drift、任务板 move-done 纳入拦截
+- **宿主契约**(v0.7.0):output.render、输出 schema 子集、commands 子 Context、skill 运行时注册——按 0.2.1-rc.2 解包产物实测修复(见 docs/platform-contract.md)
+- **DSH 原生面**(v0.7.0):原生 Agent Teams 任务派工(Lead)、只读 status/audit、策略/效率归因、两个打包 skill
 
 ## 运营发现(循环侧,非内核缺陷)
 
@@ -41,7 +60,8 @@
 
 ## 尚未闭合的已知项
 
-- Host 内拦截器的实机全保真验证(需装载当前代码后跑完成声明路径)
+- 桌面 Host 内"重启后完整会话"的实机验证:注册契约已用解包产物 + 真实 registry harness 验证(render / schema / commands fiber / skills / agentTeams),但 restarted-desktop E2E 仍建议发布前跑一遍
+- `exit: forge` / `external:` / `window:` 未实现(preflight 对 forge 亮 `unsupported-exit-policy`);v0.8 议题
 - 多成员循环桥(失败 AC → repair 任务 → 队员)在终章验收中
 - 交付物摘要搬家触发的拦截复查会再记一轮:这是文档化的代价(改本体必须先重结证据),
   靠"攒够改动再统一声明完成"规避;复查耗时现在可从 ms 字段读出
