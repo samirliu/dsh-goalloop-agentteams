@@ -4,7 +4,7 @@
 
 Contract-first acceptance criteria, a gate that **re-runs every check itself** (zero model trust), a human approval stamp that freezes done, verdicts bound to a content digest, and a hard deny on false completion at `update_goal` / team-task / task-board surfaces via `tools/pre-execute`. The portable team-file protocol and dual-ledger bookkeeping are deliberately *not* ported — native Agent Teams is strictly stronger.
 
-**v0.9.0 — Agent Teams orchestration: staff, collect, judge.** Highlights since 0.6.2:
+**v0.9.1 — Agent Teams orchestration: staff, collect, judge.** Highlights since 0.6.2:
 
 - **BROKEN is decisive.** Missing instrument (rc 127), failed probe, metric miss, unmatched `sd:`/`var:`, unbound/stale judged evidence, missing judge and calibration defects are `broken` → NO-GO; they can no longer hide inside the “≤1/3 unverifiable” allowance.
 - **R3 approval stamp.** `goal_gate_stamp` / `/goal-stamp` freezes the contract and budgets; any later edit makes completion claims fail as `contract-revised` until an explicit re-stamp.
@@ -12,6 +12,7 @@ Contract-first acceptance criteria, a gate that **re-runs every check itself** (
 - **Objective surface.** `minimize`, `!=`, data-driven `sd:`/`var:` noise bands, first-run baseline establishment, and per-round `efficiency` with strategy attribution.
 - **Budgets are fuses.** Round and wall-clock budgets bind at stamp and deny non-GO completion claims; `goal-reset --new-loop` is the human recovery path.
 - **DSH-native.** `task_board_manage` `move-done` is intercepted; `dispatch:true` and `goal_gate_dispatch` create real native Agent Teams tasks for a Team Lead; read-only `goal_gate_status` / `goal_gate_audit`.
+- **Complex-case fixes (v0.9.1).** Claim-time `delta` no longer requires a second improvement, grill no longer flags ordered scopes / bound judged contracts, and the fallback CLI now takes the ledger lock; `examples/plugin-e2e` covers all three.
 - **Host-contract fix (v0.7.1).** Tool parameters always compile to an object-rooted provider schema; the test-only `dsh-tools` shim is never left inside the link-installed package (that shim caused `schema must be a JSON Schema of 'type: "object"', got 'type: null'` at boot).
 - **Team staffing (v0.9).** `goal_gate_staff` turns ACs (or dependency waves) into teammate specs, previews by default, and with `spawn:true` spawns real native teammates, creates/assigns their board tasks and sends an AC brief. `goal_gate_collect` maps completed/in-progress/missing tasks back to ACs (`readyToCheck`); `goal_gate_judge` creates fresh-reviewer tasks for judged ACs with digest/calib requirements.
 - **Agent Teams-native dispatch (v0.8).** ACs may declare `scope:` and `depends:`; dispatch creates dependency-ordered waves with `blockedBy`/`writeScopes`, reuses pending tasks instead of duplicating them, and can assign owners. `goal_gate_status`/`goal_gate_check` return a team snapshot and `nextActions`; a ledger lock serializes concurrent member operations.
@@ -229,6 +230,14 @@ A resumed session may lack the plugin's tool table. The same ledger and the same
 | `goal_audit.sh` ledger audit | `goal_gate_audit` / `/goal-audit` |
 | crew/work-plan/roster/inbox/Teams backend | **dropped** — native Agent Teams + task board + `goal_gate_dispatch` |
 | contract-forge companion | runtime skill `goal-loop-contract` |
+
+## Complex e2e cases / 复杂集成用例
+
+`examples/plugin-e2e/run.mjs` runs five end-to-end cases against the real plugin code and the real CLI: a multi-wave CSV-to-JSONL converter with scopes/dependencies, staffing + collect + judged evidence, an adversarial contract that is grilled and repaired, budgets/contract-revision/BLOCKED/reset, concurrent CLI checks, and judged digest binding. It uses an API-faithful fake Agent Teams service so it runs without consuming model quota; live team registration is verified separately by `goal_gate_doctor`.
+
+```sh
+<abs-node> examples/plugin-e2e/run.mjs
+```
 
 ## Tests / 测试
 

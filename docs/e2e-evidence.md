@@ -1,6 +1,6 @@
 # E2E / host-contract evidence
 
-## v0.9.0 — staff / collect / judge (DSH 0.2.1-rc.2)
+## v0.9.1 — staff / collect / judge + complex cases (DSH 0.2.1-rc.2)
 
 Real-registry harness (same method as below; plugin applied as a cordis fiber):
 
@@ -14,6 +14,13 @@ Real-registry harness (same method as below; plugin applied as a cordis fiber):
 | `goal_gate_judge` with no judged ACs | empty dispatch + reason, no error |
 | `goal_gate_doctor` | `ok:true`, 13 tools, 10 commands, 3 skills |
 | Existing GO/deny paths | unchanged: `goal_gate_check` success; completion deny `contract-revised` |
+
+`examples/plugin-e2e/run.mjs` (5/5 green) exercises the plugin end-to-end:
+multi-wave CSV→JSONL delivery with scope/depends, staff+collect+judged evidence,
+grill→repair→GO, budgets/contract-revision/BLOCKED/reset, two concurrent CLI checks,
+and judged digest binding. It caught two real issues that are now regression-tested:
+claim-mode `delta` re-evaluation and grill false positives for ordered scopes /
+bound judged contracts.
 
 Team-side behaviour (fake `goalTeam` service + live team service for snapshot) is
 covered in `test/v09_test.mjs`: staff preview is read-only; `spawn:true` creates

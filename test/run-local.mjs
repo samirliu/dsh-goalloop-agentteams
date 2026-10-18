@@ -18,4 +18,8 @@ for (const t of ['smoke_test.mjs', 'wiring_test.mjs', 'ledger_test.mjs', 'redtea
   const r = spawnSync(process.execPath, [path.join(root, 'test', t)], { stdio: 'inherit' });
   if (r.status !== 0) process.exit(r.status ?? 1);
 }
+console.log('\n=== examples/plugin-e2e ===');
+const e2e = spawnSync(process.execPath, [path.join(root, 'examples', 'plugin-e2e', 'run.mjs')], { stdio: 'inherit' });
+if (e2e.status !== 0) process.exit(e2e.status ?? 1);
+
 console.log('\nAll tests passed.');

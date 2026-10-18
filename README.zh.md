@@ -4,7 +4,7 @@
 
 契约先行；门控**自己重跑每条 check**（零模型信任）；人类盖章冻结"done 的定义"；verdict 绑定内容摘要；假完成在 `update_goal` / 团队任务 / 任务板三个完成面被 `tools/pre-execute` 硬拦。goal-loop 的便携 team 文件协议与双账本**故意不移植**——原生 Agent Teams 更强。
 
-**v0.9.0 — Agent Teams 编排：编队、收集、评审**（相对 0.6.2）：
+**v0.9.1 — Agent Teams 编排：编队、收集、评审**（相对 0.6.2）：
 
 - **BROKEN 是决定性的**：仪器缺失（rc 127）、probe 失败、取数失败、`sd:`/`var:` 匹配不到、judged 证据失联/过期、判官缺失、calib 缺陷一律 `broken` → NO-GO；不再能藏在"≤1/3 unverifiable"的放行带里。
 - **R3 批准盖章**：`goal_gate_stamp` / `/goal-stamp` 冻结契约与预算；之后任何契约编辑都会让完成声明以 `contract-revised` 被拒，直到显式重盖章。
@@ -12,6 +12,7 @@
 - **目标面**：`minimize`、`!=`、数据驱动的 `sd:`/`var:` 噪声带、首轮建立水位、逐轮 `efficiency` 与策略归因。
 - **预算是保险丝**：轮次/墙钟预算在盖章时绑定，非 GO 的完成声明到点即拒；`/goal-reset --new-loop` 是人类恢复入口。
 - **DSH 原生**：拦截 `task_board_manage` 的 `move-done`；`dispatch:true` 与 `goal_gate_dispatch` 为 Team Lead 创建真实的原生 Agent Teams 任务；只读 `goal_gate_status` / `goal_gate_audit`。
+- **复杂用例修复（v0.9.1）**：完成声明轮 `delta` 不再要求二次改善；grill 不再误报按序同 scope / 已绑定证据的 judged；CLI 也走账本锁；`examples/plugin-e2e` 全部覆盖。
 - **宿主契约修复（v0.7.1）**：工具参数始终编译成 object 根的 provider schema；测试用的 `dsh-tools` shim 绝不再留进 link 安装的包目录（它曾导致启动即报 `schema must be a JSON Schema of 'type: "object"', got 'type: null'`）。
 - **团队编队（v0.9）**：`goal_gate_staff` 把 AC（或依赖波）变成队友规格，默认只预览；`spawn:true` 才真正创建原生队友、建/派任务并发送 AC 简报。`goal_gate_collect` 把任务状态映射回 AC（`readyToCheck` 决定何时跑门控）；`goal_gate_judge` 为 judged AC 建冷席评审任务（要求 digest/calib 证据）。
 - **Agent Teams 原生派工（v0.8）**：AC 可声明 `scope:`/`depends:`；派工按依赖分波，设置 `blockedBy`/`writeScopes`，复用未完成的同 stamp 任务而不是重复建卡，并可指定 owner。`goal_gate_status`/`goal_gate_check` 返回团队快照与 `nextActions`；账本锁把并发成员的判定/记账串行化。
@@ -106,7 +107,7 @@ AC-N | <yes/no 判定语句> | check: `<可失败命令>` | [probe: `<仪器检�
 - **`scope:`** 是团队派工用的工作区写范围（`writeScopes`）；**`depends:`** 建依赖图（`blockedBy`、`plan.waves`）。
 - **`probe:`** 对数值/优化类 AC 先跑且必须通过；对 `judged` 它就是判官（退出码 = 结论）。probe 失败是 `broken`，绝不当 passed。
 - **`metric:`** 从 stdout 提取一个捕获组（先剥 ANSI）；不写则取最后一个数字。取不到必要指标 = `broken`。
-- **`maximize` / `minimize`** 与上一次**被接受**的值比较；首轮建立水位并 PASS。`baseline: delta` 要求严格改善，`abs`（缺省）禁止回退。`tolerance:` 是相对噪声带；`sd:`/`var:` 把带扩大到 `max(2*spread/|prev|, tolerance)`（`var:` 开方）；声明了却匹配不到 = `broken`。
+- **`maximize` / `minimize`** 与上一次**被接受**的值比较；首轮建立水位并 PASS。普通轮 `baseline: delta` 要求严格改善，`abs`（缺省）禁止回退；**完成声明时** `delta` 退化为不回退——上一次 GO 已接受当前水位，重复测量不需要再涨一次（真实恶化仍失败）。`tolerance:` 是相对噪声带；`sd:`/`var:` 把带扩大到 `max(2*spread/|prev|, tolerance)`（`var:` 开方）；声明了却匹配不到 = `broken`。
 - **`judged`** 结论必须含 `artifact: <路径>` 与 `digest: sha256:<64hex>`（门控重算）；无绑定、过期、读不到都判 `broken`。声明 `calib: good=<f> bad=<f>` 时还须含 `calib-good: PASS` 与 `calib-bad: FAIL`，且两个夹具必须存在。
 - **检查产生的证据**（渲染、日志、判官输入）放 `.goal-gate/evidence/`——该目录不进摘要。检查写了工作区其它位置 → 本轮判 `check-mutated-tree`。
 - **`deliverable:`** 门控不强制，但驱动预检：没有任何 check 碰交付物、也没有运行时 AC，会在烧轮前亮 `deliverable-unverified` / `no-runtime-ac`。
@@ -214,6 +215,14 @@ AC-N | <yes/no 判定语句> | check: `<可失败命令>` | [probe: `<仪器检�
 | crew/work-plan/roster/inbox/Teams 后端 | **丢弃**——原生 Agent Teams + 任务板 + `goal_gate_dispatch` |
 | grilling + contract-forge | 运行时 skill `goal-loop-grill` + `goal_gate_grill`；`goal_gate_baseline` 量噪声底 |
 | contract-forge companion | 运行时 skill `goal-loop-contract` |
+
+## 复杂集成用例
+
+`examples/plugin-e2e/run.mjs` 用真实插件代码与真实 CLI 跑五个端到端 case：多波 CSV→JSONL 交付（scope/depends、staffing、collect、judged 证据）、弱契约 grill 修复、预算/契约变更/BLOCKED/reset、并发 CLI 检查、judged digest 绑定。Agent Teams 用 API 一致的 fake service，不耗模型额度；真实团队注册由 `goal_gate_doctor` 单独验证。
+
+```sh
+<abs-node> examples/plugin-e2e/run.mjs
+```
 
 ## 测试
 

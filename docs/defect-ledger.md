@@ -49,6 +49,9 @@
 | 40 | 团队完成度不可判定 | 只能看任务状态,不知道是否所有 AC 都有任务、能不能跑门控 | `goal_gate_collect` 映射 completed/inProgress/pending/missing→AC,给出 `readyToCheck` | v09:collect |
 | 41 | 冷席评审没有入口 | judged AC 只能靠模型自己"记得"找 fresh reviewer,证据/calib 纪律不可执行 | `goal_gate_judge` 为 judged AC 建幂等评审任务,简报强制 artifact/digest/calib/score | v09:judge |
 | 42 | 并发锁立即失败 / 优化无 horizon | 队友同时操作时 busy 直接失败;optimize-only 契约没有盲区防线 | `withLedgerLock waitMs` 短等待重试;grill 对无 judged+calib 且无 `horizon-waived:` 的优化契约亮 medium | v09:lock/grill |
+| 43 | 完成声明重复要求 delta 改善 | GO 已经接受当前水位;拦截器重跑同一 optimize AC 时 `baseline: delta` 仍要求再涨一次,一次正常波动就能把已 GO 的目标判 NO-GO | `runGate(mode:'claim')`:声明轮 `delta` 退化为不回退(真恶化仍失败);`goal_gate_check` 保持严格 delta | e2e case1;smoke:claimMode |
+| 44 | grill 对"按序同 scope"和"有 probe+calib 的 judged"误报 | 顺序依赖的两个 AC 共享目录被报 scope 冲突;任何 judged 都带 medium "must bind evidence" → 有 judged 的契约永远无法 ready | scope 冲突仅在**无 depends 顺序**时报告;judged evidence 改为 low 提醒(门控仍强制 digest/calib) | v09:ordered/judged grill |
+| 45 | CLI 并发无锁 | `bin/gate.mjs check/stamp` 绕过账本锁,两个进程并发会互相覆盖 round/baseline;case4 暴露 | CLI check/stamp 走 `withLedgerLock(...,{waitMs:2000})`,busy 明确退出 | examples/plugin-e2e case4 |
 
 ## 质量演进
 
@@ -65,6 +68,7 @@
 - **团队闭环**(v0.8.0):scope/depends 文法 + 分波派工、幂等 repair、owner 指派、团队快照/nextActions、账本锁
 - **评估设计**(v0.8.0):grilling skill + grill 工具、基线与离散度测量、数据驱动噪声带、第三个运行时 skill
 - **团队编排**(v0.9.0):staff 预览/spawn、collect 就绪判定、judge 冷席评审、锁等待、horizon 防线
+- **复杂用例回归**(v0.9.1):多波交付、grill 修复、预算/阻塞/重置、CLI 并发、judged digest;claim-mode delta 与 grill 误报修复
 
 ## 运营发现(循环侧,非内核缺陷)
 

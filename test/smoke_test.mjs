@@ -58,6 +58,8 @@ console.log('✓ extractMetric: regex / fallback / null / alternation / ANSI cas
 assert.equal(judgeExpected('maximize', { exitCode: 0, stdout: '' }), 'unverifiable', 'maximize w/o metric is NOT passed (Goodhart guard)');
 assert.equal(judgeExpected('maximize', { exitCode: 0, stdout: '3\n' }), 'passed', 'first measurement establishes the baseline (goal-loop numeric semantics)');
 assert.equal(judgeExpected('maximize', { exitCode: 0, stdout: '11\n' }, { prev: 10, baseline: 'delta' }), 'passed', 'delta improves');
+assert.equal(judgeExpected('maximize', { exitCode: 0, stdout: '10\n' }, { prev: 10, baseline: 'delta' }), 'failed', 'delta requires strict improvement during normal rounds');
+assert.equal(judgeExpected('maximize', { exitCode: 0, stdout: '10\n' }, { prev: 10, baseline: 'delta', claimMode: true }), 'passed', 'claim mode does not require improving again after the last GO');
 assert.equal(judgeExpected('maximize', { exitCode: 0, stdout: '10\n' }, { prev: 10, baseline: 'delta' }), 'failed', 'delta flat = not improved');
 assert.equal(judgeExpected('maximize', { exitCode: 0, stdout: '10\n' }, { prev: 10, baseline: 'abs' }), 'passed', 'abs flat = no regression');
 assert.equal(judgeExpected('maximize', { exitCode: 0, stdout: '9\n' }, { prev: 10 }), 'failed', 'default is abs: regression fails');

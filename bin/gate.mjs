@@ -13,7 +13,7 @@ import { runGate, parseContract } from '../lib/core.js';
 import {
   contractPath, loopPath, readState, writeState, recordRun, readHistory, readLoop,
   preflightChecks, neverFailedAcs, loopIdleStatus, idleWarning, duplicateEvalNote,
-  applyStamp, timeBudgetStatus, efficiencyOf, statusReport, auditReport,
+  applyStamp, timeBudgetStatus, efficiencyOf, statusReport, auditReport, withLedgerLock,
 } from '../lib/ledger.js';
 
 const args = process.argv.slice(2);
@@ -57,14 +57,15 @@ if (cmd === 'reset') {
 const cp = contractPath(root);
 if (cmd === 'stamp') {
   if (!fs.existsSync(cp)) fail(4, { rc: 4, code: 'state-error', reason: 'no contract', contract: cp });
-  const res = applyStamp(root, fs.readFileSync(cp, 'utf8'), {
+  const locked = await withLedgerLock(root, async () => applyStamp(root, fs.readFileSync(cp, 'utf8'), {
     approvedBy: flag('--approved-by'),
     maxRounds: flag('--max-rounds') !== undefined ? Number(flag('--max-rounds')) : undefined,
     timeBudgetMinutes: flag('--time-budget-minutes') !== undefined ? Number(flag('--time-budget-minutes')) : undefined,
     restamp: has('--restamp'),
-  });
-  out(res);
-  process.exit(res.ok ? 0 : 2);
+  }), { waitMs: 2000 });
+  if (locked.busy) fail(4, { rc: 4, code: 'busy', reason: 'another goal-gate operation holds the ledger lock; retry after it settles' });
+  out(locked);
+  process.exit(locked.ok ? 0 : 2);
 }
 
 if (!fs.existsSync(cp)) fail(4, { rc: 4, code: 'state-error', reason: 'no contract', contract: cp });
@@ -82,42 +83,47 @@ if (cmd === 'preflight') {
 if (cmd === 'check') {
   const strategy = flag('--strategy');
   const note = flag('--note');
-  const historyBefore = readHistory(root); // 重评检测/效率归因(recordRun 追加前的历史)
-  const g = runGate(text, { cwd: root, baselines: { ...(state.baselines ?? {}) }, spreads: { ...(state.spreads ?? {}) } });
-  const { baselineUpdates: _b, spreadUpdates: _s, ...gOut } = g;
-  const loopBefore = readLoop(root);
-  const fin = recordRun(root, state, g, 'check', { strategy, note });
-  const history = readHistory(root);
-  const never = neverFailedAcs(history, contract.acs, 2, g.stamp);
-  const failedActions = (g.results ?? []).filter((r) => r.status !== 'passed').map((r) => {
-    const ac = contract.acs.find((x) => x.id === r.id);
-    return ac ? { id: ac.id, statement: ac.statement, check: ac.check, expected: ac.expected, why: r.why } : { id: r.id };
-  });
-  const loopNow = readLoop(root);
-  const warnings = preflightChecks(text, root);
-  const idleWarn = idleWarning(state, loopNow);
-  if (idleWarn) warnings.push(idleWarn);
-  const idle = loopIdleStatus(state, loopNow);
-  const time = timeBudgetStatus(state, loopNow);
-  const dup = duplicateEvalNote(historyBefore, loopBefore, g);
-  const efficiency = efficiencyOf(historyBefore, loopNow?.createdAt ?? 'default', g, strategy);
-  const base = {
-    ...gOut, contract: cp,
-    ...(dup ? { note: gOut.note ? `${gOut.note}; ${dup}` : dup } : {}),
-    round: fin.round, maxRounds: fin.maxRounds, remainingRounds: fin.remainingRounds,
-    roundsExhausted: fin.roundsExhausted, bestScore: state.bestScore ?? undefined,
-    regression: fin.regression, failedActions,
-    idleHours: idle ? idle.idleHours : undefined,
-    neverFailed: never.length ? never : undefined,
-    preflight: warnings.length ? warnings : undefined,
-    ...(time ? { timeBudgetMinutes: time.budgetMinutes, timeRemainingMinutes: time.remainingMinutes, timeExhausted: time.exhausted } : {}),
-    ...(efficiency ? { efficiency } : {}),
-  };
-  if ((state.falseCompletes ?? 0) >= 2) {
-    fail(3, { ...base, rc: 3, code: 'blocked', reason: `false-completes=${state.falseCompletes} ≥ 2; gate blocked. 等人介入。(${g.reason})` });
-  }
-  out(base);
-  process.exit(g.rc === 0 ? 0 : 2);
+  const locked = await withLedgerLock(root, async () => {
+    const state = readState(root);
+    const historyBefore = readHistory(root); // 重评检测/效率归因(recordRun 追加前的历史)
+    const g = runGate(text, { cwd: root, baselines: { ...(state.baselines ?? {}) }, spreads: { ...(state.spreads ?? {}) } });
+    const { baselineUpdates: _b, spreadUpdates: _s, ...gOut } = g;
+    const loopBefore = readLoop(root);
+    const fin = recordRun(root, state, g, 'check', { strategy, note });
+    const history = readHistory(root);
+    const never = neverFailedAcs(history, contract.acs, 2, g.stamp);
+    const failedActions = (g.results ?? []).filter((r) => r.status !== 'passed').map((r) => {
+      const ac = contract.acs.find((x) => x.id === r.id);
+      return ac ? { id: ac.id, statement: ac.statement, check: ac.check, expected: ac.expected, why: r.why } : { id: r.id };
+    });
+    const loopNow = readLoop(root);
+    const warnings = preflightChecks(text, root);
+    const idleWarn = idleWarning(state, loopNow);
+    if (idleWarn) warnings.push(idleWarn);
+    const idle = loopIdleStatus(state, loopNow);
+    const time = timeBudgetStatus(state, loopNow);
+    const dup = duplicateEvalNote(historyBefore, loopBefore, g);
+    const efficiency = efficiencyOf(historyBefore, loopNow?.createdAt ?? 'default', g, strategy);
+    const base = {
+      ...gOut, contract: cp,
+      ...(dup ? { note: gOut.note ? `${gOut.note}; ${dup}` : dup } : {}),
+      round: fin.round, maxRounds: fin.maxRounds, remainingRounds: fin.remainingRounds,
+      roundsExhausted: fin.roundsExhausted, bestScore: state.bestScore ?? undefined,
+      regression: fin.regression, failedActions,
+      idleHours: idle ? idle.idleHours : undefined,
+      neverFailed: never.length ? never : undefined,
+      preflight: warnings.length ? warnings : undefined,
+      ...(time ? { timeBudgetMinutes: time.budgetMinutes, timeRemainingMinutes: time.remainingMinutes, timeExhausted: time.exhausted } : {}),
+      ...(efficiency ? { efficiency } : {}),
+    };
+    if ((state.falseCompletes ?? 0) >= 2) {
+      return { exitCode: 3, out: { ...base, rc: 3, code: 'blocked', reason: `false-completes=${state.falseCompletes} ≥ 2; gate blocked. 等人介入。(${g.reason})` } };
+    }
+    return { exitCode: g.rc === 0 ? 0 : 2, out: base };
+  }, { waitMs: 2000 });
+  if (locked.busy) fail(4, { rc: 4, code: 'busy', reason: 'another goal-gate operation holds the ledger lock; retry after it settles' });
+  out(locked.out);
+  process.exit(locked.exitCode);
 }
 
 fail(4, { rc: 4, code: 'state-error', reason: `unknown command ${cmd}; use check|status|audit|stamp|reset|preflight` });
