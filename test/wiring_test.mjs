@@ -6,27 +6,59 @@ import path from 'node:path';
 
 const registeredTools = [];
 const registeredCmds = [];
+const registeredSkills = [];
 const preExecuteListeners = [];
+const skillsService = { register: (s) => registeredSkills.push(s) };
 const ctx = {
   tools: { register: (t) => registeredTools.push(t) },
-  inject: (_deps, fn) => fn({ register: (c) => registeredCmds.push(c) }),
+  inject: (_deps, fn) => fn({ commands: { register: (c) => registeredCmds.push(c) }, skills: skillsService, get: (k) => (k === 'skills' ? skillsService : undefined) }),
+  get: (k) => (k === 'skills' ? skillsService : undefined),
   on: (name, fn) => { if (name === 'tools/pre-execute') preExecuteListeners.push(fn); return () => {}; },
+  logger: { warn: () => {} },
 };
 
 const mod = await import('../lib/index.js');
 mod.apply(ctx, {});
 
-assert.deepEqual(registeredTools.map(t => t.name).sort(), ['goal_gate_check', 'goal_gate_init', 'goal_loop_at']);
-assert.deepEqual(registeredCmds.map(c => c.name), ['goal-gate', 'goal-loop-at']);
+// 0.2.1-rc.2 的真实注册契约:output.render 必填;输出 schema 必须是受支持的
+// JSON Schema 子集(无 type:'json'、属性级 required、无 additionalProperties 的 object)。
+const OUTPUT_TYPES = new Set(['string', 'number', 'integer', 'boolean', 'null', 'array', 'object']);
+function assertOutputSchema(node, where) {
+  assert.ok(node && typeof node === 'object' && !Array.isArray(node), `${where}: schema node must be an object`);
+  if (node.oneOf) {
+    assert.ok(Array.isArray(node.oneOf) && node.oneOf.length >= 2, `${where}.oneOf needs >=2 branches`);
+    node.oneOf.forEach((n, i) => assertOutputSchema(n, `${where}.oneOf[${i}]`));
+    return;
+  }
+  assert.ok(OUTPUT_TYPES.has(node.type), `${where}.type "${node.type}" is outside the supported subset`);
+  assert.ok(!('required' in node), `${where}.required is not supported in an output value schema`);
+  if (node.type === 'object') {
+    assert.equal(typeof node.additionalProperties, 'boolean', `${where}.additionalProperties must be explicit`);
+    for (const [k, v] of Object.entries(node.properties ?? {})) assertOutputSchema(v, `${where}.properties.${k}`);
+  }
+  if (node.type === 'array') assertOutputSchema(node.items, `${where}.items`);
+}
+for (const t of registeredTools) {
+  assert.equal(typeof t.output.render, 'function', `${t.name} declares output.render (0.2.1-rc.2 calls it on success)`);
+  assert.match(t.output.render({}, {}).map((b) => b.type).join(','), /text/, `${t.name} render returns a text block`);
+  assertOutputSchema(t.output.schema, `${t.name}.output`);
+}
+assert.deepEqual(registeredTools.map(t => t.name).sort(), [
+  'goal_gate_audit', 'goal_gate_check', 'goal_gate_dispatch', 'goal_gate_init',
+  'goal_gate_stamp', 'goal_gate_status', 'goal_loop_at',
+]);
+assert.deepEqual(registeredCmds.map(c => c.name), ['goal-gate', 'goal-loop-at', 'goal-stamp', 'goal-reset', 'goal-audit']);
+assert.deepEqual(registeredSkills.map(s => s.name).sort(), ['goal-loop', 'goal-loop-contract']);
+assert.ok(registeredSkills.every(s => typeof s.content === 'string' && s.content.length > 500), 'embedded skill bodies are loaded');
 assert.equal(preExecuteListeners.length, 1);
 console.log('✓ registered:', registeredTools.map(t => t.name).join(', '), '| cmds:', registeredCmds.map(c => c.name).join(', '));
 
-// 命令形状：handler(invocation) + input.hint（真实 commands 服务 API，对齐 dsh-agent-teams）
+// 命令形状：handler(invocation) + 可选非空 input.hint（0.2.1-rc.2 拒绝空 hint）
 for (const c of registeredCmds) {
   assert.equal(typeof c.handler, 'function', `${c.name} uses handler(invocation) shape`);
-  assert.ok(c.input && typeof c.input.hint === 'string', `${c.name} declares input.hint`);
+  assert.ok(c.input === undefined || (typeof c.input.hint === 'string' && c.input.hint.length > 0), `${c.name} hint is absent or non-empty`);
 }
-console.log('✓ command shape: handler(invocation) + input.hint');
+console.log('✓ command shape: handler(invocation) + optional non-empty hint');
 
 // 隔离工作区；用 agent.session.header.cwd 指向它（真实插件取 cwd 的方式）
 const work = fs.mkdtempSync('/tmp/goal-gate-wiring-');

@@ -34,8 +34,8 @@ AC-2 | 运行时 | check: \`sh -c 'test -s deliverable.txt'\` | expected: exit=0
   // 篡改交付物:评审摘要不再匹配 → 必须作废
   fs.writeFileSync(art, 'v2 content — what ships now\n');
   const g2 = runGate(fs.readFileSync(contractPath(root), 'utf8'), { cwd: root });
-  defense('交付物已变、评审没跟', g2.results[0].status === 'unverifiable' && g2.code !== 'go',
-    `判为 ${g2.results[0].status},门控 ${g2.code}(应 unverifiable 且非 go)`);
+  defense('交付物已变、评审没跟', g2.results[0].status === 'broken' && g2.code !== 'go',
+    `判为 ${g2.results[0].status},门控 ${g2.code}(应 broken 且非 go)`);
 }
 
 // ── 攻击 2:伪造摘要 ─────────────────────────────────────────────────
@@ -48,7 +48,7 @@ deliverable: d.txt
 AC-1 | 伪造评审 | check: \`echo artifact: d.txt; echo digest: sha256:${'0'.repeat(64)}\` | probe: \`test -f d.txt\` | expected: judged
 AC-2 | 运行时 | check: \`sh -c 'test -s d.txt'\` | expected: exit=0
 `, { cwd: root });
-  defense('伪造评审摘要', g.results[0].status === 'unverifiable', `判为 ${g.results[0].status}`);
+  defense('伪造评审摘要', g.results[0].status === 'broken', `判为 ${g.results[0].status}`);
 }
 
 // ── 攻击 3:无凭据评审却宣称通过(最难防的一类)───────────────────────
@@ -61,7 +61,7 @@ deliverable: d.txt
 AC-1 | 口头评审 | check: \`echo VERDICT: PASS\` | probe: \`true\` | expected: judged
 AC-2 | 运行时 | check: \`sh -c 'test -s d.txt'\` | expected: exit=0
 `, { cwd: root });
-  defense('无凭据评审宣称 PASS', g.results[0].status === 'unverifiable' && g.code !== 'go',
+  defense('无凭据评审宣称 PASS', g.results[0].status === 'broken' && g.code !== 'go',
     `判为 ${g.results[0].status},门控 ${g.code}`);
 }
 
