@@ -12,6 +12,7 @@
 - **目标面**：`minimize`、`!=`、数据驱动的 `sd:`/`var:` 噪声带、首轮建立水位、逐轮 `efficiency` 与策略归因。
 - **预算是保险丝**：轮次/墙钟预算在盖章时绑定，非 GO 的完成声明到点即拒；`/goal-reset --new-loop` 是人类恢复入口。
 - **DSH 原生**：拦截 `task_board_manage` 的 `move-done`；`dispatch:true` 与 `goal_gate_dispatch` 为 Team Lead 创建真实的原生 Agent Teams 任务；只读 `goal_gate_status` / `goal_gate_audit`。
+- **宿主契约修复（v0.7.1）**：工具参数始终编译成 object 根的 provider schema；测试用的 `dsh-tools` shim 绝不再留进 link 安装的包目录（它曾导致启动即报 `schema must be a JSON Schema of 'type: "object"', got 'type: null'`）。
 - **Agent Teams 原生派工（v0.8）**：AC 可声明 `scope:`/`depends:`；派工按依赖分波，设置 `blockedBy`/`writeScopes`，复用未完成的同 stamp 任务而不是重复建卡，并可指定 owner。`goal_gate_status`/`goal_gate_check` 返回团队快照与 `nextActions`；账本锁把并发成员的判定/记账串行化。
 - **Grilling 评估设计（v0.8）**：`goal-loop-grill` skill + `goal_gate_grill` 工具对抗式审查契约（永真式、不可判、Goodhart 代理、缺运行时证据、judged 未绑定、缺噪声带、scope 重叠）；`goal_gate_baseline` 在盖章前量出 optimize AC 的均值/离散度。
 - **打包 skill + 命令**：三个 skill 出现在会话 skill 目录；`/goal-loop-at`、`/goal-gate`、`/goal-stamp`、`/goal-audit`、`/goal-reset` 注册。
