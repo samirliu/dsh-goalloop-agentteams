@@ -1,6 +1,6 @@
 {
   "name": "dsh-goalloop-agentteams",
-  "version": "0.9.0",
+  "version": "0.9.1",
   "description": "goal-loop for DeepSeek Harness, Agent Teams-native: contract-first ACs, deterministic gate, R3 stamp, BROKEN taxonomy, content digests, false-complete ratchet, round/time fuses, judged evidence + calib, baseline/spread measurement, scope/depends waves, idempotent repair dispatch, teammate staffing (preview/spawn/assign), team task collection, cold-seat judge tasks, team status + nextActions, ledger lock, grilling eval/metric audit. Runtime skills: goal-loop, goal-loop-contract, goal-loop-grill.",
   "type": "module",
   "main": "lib/index.js",

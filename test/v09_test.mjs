@@ -170,7 +170,22 @@ AC-1 | throughput | check: \`printf 'm=100\\n'\` | probe: \`true\` | metric: \`m
   });
   assert.ok(report.findings.some((f) => /horizon/.test(f.issue)), JSON.stringify(report.findings));
   assert.ok(report.questions.some((q) => /NOT see/.test(q)));
-  console.log('✓ v0.9 grill: optimization without judged/calib horizon is needs-work');
+  // Sequential ACs may share a scope; ordered scopes are not a conflict.
+  // A judged AC with probe+calib may have a low evidence reminder but must not
+  // be medium (otherwise no judged contract can ever be 'ready').
+  const ordered = grillContract({
+    contractText: `objective: ordered
+deliverable: out.txt
+AC-1 | core | check: \`test -f out.txt\` | scope: src/core | expected: exit=0
+AC-2 | core follow-up | check: \`test -f out.txt\` | scope: src/core | depends: AC-1 | expected: exit=0
+AC-3 | docs | check: \`cat verdict.txt\` | probe: \`grep -q PASS verdict.txt\` | calib: good=g.txt bad=b.txt | scope: docs | expected: judged
+`,
+    state: { baselines: {}, spreads: {} },
+    cwd: work,
+  });
+  assert.ok(!ordered.findings.some((f) => f.severity === 'medium' && /overlapping write scopes/.test(f.issue)), JSON.stringify(ordered.findings));
+  assert.ok(!ordered.findings.some((f) => f.severity === 'medium' && /bind evidence/.test(f.issue)), JSON.stringify(ordered.findings));
+  console.log('✓ v0.9 grill: ordered scopes and bound judged contracts are not false positives');
 }
 
 console.log('\nAll v0.9 tests passed.');

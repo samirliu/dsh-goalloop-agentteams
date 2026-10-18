@@ -80,7 +80,9 @@ AC-N | <yes/no statement> | check: `<failable command>` | [probe: `<instrument c
   it whenever output contains other numbers.
 - `maximize`/`minimize` compare with the previous **accepted** value; the first
   run sets the water mark and **passes** (`delta` starts at run 2; `abs` = no
-  regression, `delta` = strict improvement). `tolerance:` is a relative band;
+  regression, `delta` = strict improvement on normal rounds). At a completion
+  claim `delta` degrades to no-regression: a GO is not invalidated by repeating
+  the same measurement. `tolerance:` is a relative band;
   `sd:`/`var:` widen it to `max(2*spread/|prev|, tolerance)` (`var` is sqrt'd);
   declared but unmatched spread = broken.
 - `judged` needs a verdict with `artifact: <path>` and `digest: sha256:<64hex>`
