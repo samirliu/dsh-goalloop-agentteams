@@ -233,7 +233,7 @@ A resumed session may lack the plugin's tool table. The same ledger and the same
 
 ## Complex e2e cases / 复杂集成用例
 
-`examples/plugin-e2e/run.mjs` runs five end-to-end cases against the real plugin code and the real CLI: a multi-wave CSV-to-JSONL converter with scopes/dependencies, staffing + collect + judged evidence, an adversarial contract that is grilled and repaired, budgets/contract-revision/BLOCKED/reset, concurrent CLI checks, and judged digest binding. It uses an API-faithful fake Agent Teams service so it runs without consuming model quota; live team registration is verified separately by `goal_gate_doctor`.
+[examples/plugin-e2e/run.mjs](examples/plugin-e2e/README.md) runs five end-to-end cases against the real plugin code and the real CLI: a multi-wave CSV-to-JSONL converter with scopes/dependencies, staffing + collect + judged evidence, an adversarial contract that is grilled and repaired, budgets/contract-revision/BLOCKED/reset, concurrent CLI checks, and judged digest binding. It uses an API-faithful fake Agent Teams service so it runs without consuming model quota; live team registration is verified separately by `goal_gate_doctor`.
 
 ```sh
 <abs-node> examples/plugin-e2e/run.mjs

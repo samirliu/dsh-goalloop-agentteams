@@ -218,7 +218,7 @@ AC-N | <yes/no 判定语句> | check: `<可失败命令>` | [probe: `<仪器检�
 
 ## 复杂集成用例
 
-`examples/plugin-e2e/run.mjs` 用真实插件代码与真实 CLI 跑五个端到端 case：多波 CSV→JSONL 交付（scope/depends、staffing、collect、judged 证据）、弱契约 grill 修复、预算/契约变更/BLOCKED/reset、并发 CLI 检查、judged digest 绑定。Agent Teams 用 API 一致的 fake service，不耗模型额度；真实团队注册由 `goal_gate_doctor` 单独验证。
+[examples/plugin-e2e/run.mjs](examples/plugin-e2e/README.md) 用真实插件代码与真实 CLI 跑五个端到端 case：多波 CSV→JSONL 交付（scope/depends、staffing、collect、judged 证据）、弱契约 grill 修复、预算/契约变更/BLOCKED/reset、并发 CLI 检查、judged digest 绑定。Agent Teams 用 API 一致的 fake service，不耗模型额度；真实团队注册由 `goal_gate_doctor` 单独验证。
 
 ```sh
 <abs-node> examples/plugin-e2e/run.mjs
