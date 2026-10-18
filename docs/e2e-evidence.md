@@ -1,5 +1,28 @@
 # E2E / host-contract evidence
 
+## v0.8.0 — Agent Teams-native tools + grilling (DSH 0.2.1-rc.2)
+
+Same real-registry harness as below (packages extracted from the desktop app; real
+`ToolRuntime`, `SkillRegistry`, `CommandRegistry`; plugin applied as a cordis fiber):
+
+| Check | Observed |
+|---|---|
+| Tools | 10 registered: `goal_loop_at`, `goal_gate_init`, `goal_gate_stamp`, `goal_gate_check`, `goal_gate_status`, `goal_gate_audit`, `goal_gate_dispatch`, `goal_gate_grill`, `goal_gate_baseline`, `goal_gate_doctor` |
+| Parameter schemas | every tool exposes `parameters.type === "object"` with a properties map (the 0.7.0 crash was exactly this invariant) |
+| Commands | 8 registered in a real command registry: `goal-gate`, `goal-loop-at`, `goal-stamp`, `goal-grill`, `goal-baseline`, `goal-doctor`, `goal-reset`, `goal-audit` |
+| Skills | 3 registered: `goal-loop`, `goal-loop-contract`, `goal-loop-grill` |
+| `goal_loop_at` | success; returned contract/loop/tasks/`plan.waves`/protocol/preflight |
+| `goal_gate_check` | success; `rc:0 GO`, totals, efficiency, `nextActions: [audit-and-claim]` |
+| `goal_gate_status` | success; `spreads`, `nextActions`, no null-in-string fields |
+| `goal_gate_grill` | success; `needs-work` with named findings on a skeleton contract |
+| `goal_gate_baseline` | success; no optimize ACs → `recorded:false` + explanatory `notes` |
+| Completion deny | structured `Error: [goal-gate:contract-revised] …` after a post-stamp edit |
+| `--dump-config` | scratch profile shows the `goal-gate` row |
+
+Unit-level team coverage (fake `agentTeams` service) exercises dependency waves,
+`blockedBy`/`writeScopes`, idempotent re-dispatch, owner assignment, team snapshot,
+`nextActions`, and the ledger lock (`test/v08_test.mjs`).
+
 ## v0.7.0 — real registration contract (DSH 0.2.1-rc.2, 2026-10-18)
 
 Method: the desktop app's own packages were extracted from `app.asar` (dsh-tools,

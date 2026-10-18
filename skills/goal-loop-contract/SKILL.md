@@ -21,7 +21,7 @@ signature, applied through `goal_gate_stamp` or `/goal-stamp`.
 **Line shape** (field order is fixed; reordering makes the line unparsed, a
 state-error): `AC-N | <statement> | check: <cmd> | [probe: <cmd>] | [metric:
 <regex>] | [baseline: delta|abs] | [timeout: <s>] | [tolerance: <rel>] |
-[sd: <regex>] | [var: <regex>] | [calib: good=<f> bad=<f>] | expected: <spec>`;
+[sd: <regex>] | [var: <regex>] | [calib: good=<f> bad=<f>] | [scope: <path[,path...]>] | [depends: AC-x[,AC-y]] | expected: <spec>`;
 `spec = exit=0 | exit=N | <=N | >=N | <N | >N | =N | !=N | maximize | minimize | judged`.
 
 ## Workflow
@@ -100,6 +100,8 @@ deliverable itself (read-only) or an evidence file there.
 - [ ] Numeric specs pin `metric:`; metric/max/min ACs have a passing `probe:`
 - [ ] Noisy metrics have `tolerance:` and/or `sd:`/`var:`, plus a measured baseline
 - [ ] Judged ACs have a judge, digest binding, and `calib:` where quality is at stake
+- [ ] Team metadata: `scope:` is disjoint for parallel ACs; `depends:` is acyclic and matches the real build order
+- [ ] `goal_gate_grill` has no high/medium findings, and `goal_gate_baseline` recorded every optimize AC
 - [ ] Budget: `maxRounds` / `timeBudgetMinutes` set; smoke runs passed; summary approved
 
 ## Two examples

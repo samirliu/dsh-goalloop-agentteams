@@ -83,8 +83,8 @@ if (cmd === 'check') {
   const strategy = flag('--strategy');
   const note = flag('--note');
   const historyBefore = readHistory(root); // 重评检测/效率归因(recordRun 追加前的历史)
-  const g = runGate(text, { cwd: root, baselines: { ...(state.baselines ?? {}) } });
-  const { baselineUpdates: _b, ...gOut } = g;
+  const g = runGate(text, { cwd: root, baselines: { ...(state.baselines ?? {}) }, spreads: { ...(state.spreads ?? {}) } });
+  const { baselineUpdates: _b, spreadUpdates: _s, ...gOut } = g;
   const loopBefore = readLoop(root);
   const fin = recordRun(root, state, g, 'check', { strategy, note });
   const history = readHistory(root);

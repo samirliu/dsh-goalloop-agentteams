@@ -4,7 +4,7 @@
 
 Contract-first acceptance criteria, a gate that **re-runs every check itself** (zero model trust), a human approval stamp that freezes done, verdicts bound to a content digest, and a hard deny on false completion at `update_goal` / team-task / task-board surfaces via `tools/pre-execute`. The portable team-file protocol and dual-ledger bookkeeping are deliberately *not* ported — native Agent Teams is strictly stronger.
 
-**v0.7.0 — trust fixes + full loop surface.** Highlights since 0.6.2:
+**v0.8.0 — Agent Teams-native loop + grilling-based eval design.** Highlights since 0.6.2:
 
 - **BROKEN is decisive.** Missing instrument (rc 127), failed probe, metric miss, unmatched `sd:`/`var:`, unbound/stale judged evidence, missing judge and calibration defects are `broken` → NO-GO; they can no longer hide inside the “≤1/3 unverifiable” allowance.
 - **R3 approval stamp.** `goal_gate_stamp` / `/goal-stamp` freezes the contract and budgets; any later edit makes completion claims fail as `contract-revised` until an explicit re-stamp.
@@ -12,7 +12,9 @@ Contract-first acceptance criteria, a gate that **re-runs every check itself** (
 - **Objective surface.** `minimize`, `!=`, data-driven `sd:`/`var:` noise bands, first-run baseline establishment, and per-round `efficiency` with strategy attribution.
 - **Budgets are fuses.** Round and wall-clock budgets bind at stamp and deny non-GO completion claims; `goal-reset --new-loop` is the human recovery path.
 - **DSH-native.** `task_board_manage` `move-done` is intercepted; `dispatch:true` and `goal_gate_dispatch` create real native Agent Teams tasks for a Team Lead; read-only `goal_gate_status` / `goal_gate_audit`.
-- **Packaged skills + commands.** The two skills appear in the session skill catalog; `/goal-loop-at`, `/goal-gate`, `/goal-stamp`, `/goal-audit`, `/goal-reset` are registered.
+- **Agent Teams-native dispatch (v0.8).** ACs may declare `scope:` and `depends:`; dispatch creates dependency-ordered waves with `blockedBy`/`writeScopes`, reuses pending tasks instead of duplicating them, and can assign owners. `goal_gate_status`/`goal_gate_check` return a team snapshot and `nextActions`; a ledger lock serializes concurrent member operations.
+- **Grilling eval design (v0.8).** `goal-loop-grill` skill + `goal_gate_grill` tool adversarially audit the contract: tautologies, unfalsifiable claims, Goodhart proxies, missing runtime evidence, unbound judged verdicts, missing noise bands, overlapping scopes. `goal_gate_baseline` measures optimize-AC mean/spread before stamping.
+- **Packaged skills + commands.** Three skills appear in the session skill catalog; `/goal-loop-at`, `/goal-gate`, `/goal-stamp`, `/goal-audit`, `/goal-reset`, `/goal-grill`, `/goal-baseline` are registered.
 
 ## 中文简介
 
@@ -25,6 +27,8 @@ Contract-first acceptance criteria, a gate that **re-runs every check itself** (
 - **分级治理**：`update_goal(complete)` 永远硬拦；任务级完成声明按 `exit: strict|goal-only` 分级；`task_board_manage move-done` 同样受管——多任务循环不会死锁，也不会绕过门控。
 
 完整中文文档见 [README.zh.md](README.zh.md)。
+
+The design rationale (right agentic loop, right eval, right metric, and how each maps onto Agent Teams) is in [docs/agent-teams-loop.md](docs/agent-teams-loop.md).
 
 ## Why / 为什么需要它
 
@@ -89,11 +93,14 @@ or let the model call `goal_loop_at({objective, acs?, maxRounds?, dispatch?})`. 
 | `goal_gate_check` | Re-run every check; the only GO authority | `rc`, `code`, `score`, `totals`, `results`, `round`/`maxRounds`, `bestScore`, `regression`, `trend`, `failedActions`, `neverFailed`, `preflight`, `efficiency`, `timeRemainingMinutes`, `digestBefore`/`digestAfter` |
 | `goal_gate_status` | Read-only status: no checks, no round burned | contract/stamp/approval, loop, counters, digest, last checks, stale flags, budgets |
 | `goal_gate_audit` | Read-only pre-claim audit: contract/stamp/digest/last-GO consistency | `ok`, `violations`, `warnings`, `recommendations` |
-| `goal_gate_dispatch` | Create native Agent Teams repair tasks for failing/broken ACs (suggestions for non-Leads) | `gate`, `dispatched`, `failed`, `reason`, `suggestions` |
+| `goal_gate_dispatch` | Create native Agent Teams repair tasks: deps→`blockedBy`, scope→`writeScopes`, idempotent, optional owners | `gate`, `dispatched`, `failed`, `skippedExisting`, `reason`, `suggestions` |
+| `goal_gate_grill` | Read-only adversarial eval/metric audit before stamp | `ok`, `verdict`, `findings`, `questions`, `metricDesign`, `goodhart` |
+| `goal_gate_baseline` | Measure optimize AC baseline/spread (no round burned) | `samples`, `acs`, `recorded`, `notes` |
+| `goal_gate_doctor` | Self-check tools/parameter schemas/commands/skills/Teams/contract | `ok`, `version`, `tools`, `commands`, `skills`, `agentTeams`, `contract`, `notes` |
 
-Commands: `/goal-loop-at <objective>`, `/goal-gate` (status), `/goal-stamp [--restamp] [--max-rounds=N] [--time-budget-minutes=N] [approvedBy]`, `/goal-audit`, `/goal-reset [--new-loop] [reason]`.
+Commands: `/goal-loop-at <objective>`, `/goal-gate` (status), `/goal-stamp [--restamp] [--max-rounds=N] [--time-budget-minutes=N] [approvedBy]`, `/goal-audit`, `/goal-grill`, `/goal-baseline [samples]`, `/goal-doctor`, `/goal-reset [--new-loop] [reason]`.
 
-Runtime skills: **`goal-loop`** (the playbook) and **`goal-loop-contract`** (contract forge / stamp checklist). They are registered with `ctx.skills.register` and appear in the model's skill catalog; no filesystem install is needed.
+Runtime skills: **`goal-loop`** (the playbook), **`goal-loop-contract`** (contract forge / stamp checklist) and **`goal-loop-grill`** (adversarial eval/metric design). They are registered with `ctx.skills.register` and appear in the model's skill catalog; no filesystem install is needed.
 
 ## Contract grammar / 契约文法
 
@@ -101,12 +108,13 @@ Runtime skills: **`goal-loop`** (the playbook) and **`goal-loop-contract`** (con
 objective: <one-line goal>
 deliverable: <path to the artifact itself>
 exit: goal-only | strict
-AC-N | <yes/no statement> | check: `<failable command>` | [probe: `<instrument check>`] | [metric: `<regex, one capture group>`] | [baseline: delta|abs] | [timeout: <seconds>] | [tolerance: <relative>] | [sd: `<regex>`] | [var: `<regex>`] | [calib: good=<file> bad=<file>] | expected: <spec>
+AC-N | <yes/no statement> | check: `<failable command>` | [probe: `<instrument check>`] | [metric: `<regex, one capture group>`] | [baseline: delta|abs] | [timeout: <seconds>] | [tolerance: <relative>] | [sd: `<regex>`] | [var: `<regex>`] | [calib: good=<file> bad=<file>] | [scope: <path[,path...]>] | [depends: AC-x[,AC-y]] | expected: <spec>
 ```
 
 Specs: `exit=0` | `exit=N` | `<=N` | `>=N` | `<N` | `>N` | `=N` | `!=N` | `maximize` | `minimize` | `judged`.
 
-- **One AC per line, fixed token order.** A line that starts with `AC-N` but does not parse makes the gate refuse the whole contract (`state-error`); a leading `- AC-N` list marker is accepted. Duplicate AC ids are refused.
+- **One AC per line, fixed token order.** A line that starts with `AC-N` but does not parse makes the gate refuse the whole contract (`state-error`); a leading `- AC-N` list marker is accepted. Duplicate AC ids, unknown dependencies and dependency cycles are refused.
+- **`scope:`** is the workspace-relative write scope used by team dispatch (`writeScopes`); **`depends:`** builds the dependency graph (`blockedBy`, `plan.waves`).
 - **`probe:`** runs first for numeric/optimization ACs and must pass; for `judged` it is the judge (exit code = verdict). A failed probe is `broken`, never `passed`.
 - **`metric:`** extracts one capture group from stdout (ANSI stripped); without it the last number is used. Missing required metric = `broken`.
 - **`maximize` / `minimize`** compare against the previous **accepted** value; the first run establishes the water mark and passes. `baseline: delta` demands strict improvement, `abs` (default) forbids regression. `tolerance:` is a relative noise band; `sd:`/`var:` widen it to `max(2*spread/|prev|, tolerance)` (`var:` is square-rooted); declared-but-unmatched spread is `broken`.
@@ -150,10 +158,29 @@ Mounted on `tools/pre-execute`; always returns structured `{kind:'deny'}` (never
 - `goal_gate_dispatch({includeUnverifiable?})` re-runs the checks **without recording a round** and creates tasks for `failed`/`broken` (and optionally `unverifiable`) ACs. Each task description carries the exact command and spec.
 - Without a Teams service, use `task_board_create` / solo work. The plugin never writes the task-board ledger directly.
 
+## Agent Teams loop / Agent Teams 闭环
+
+The plugin adapts to the native team service opportunistically (`ctx.get('agentTeams')`); it never requires it and never writes the task-board ledger itself.
+
+| Concern | Behaviour |
+|---|---|
+| Planning | `goal_loop_at` returns `plan.waves` (topological from `depends:`) and task briefs carrying `scope:`/`depends:` |
+| Dispatch | `goal_loop_at({dispatch:true})` / `goal_gate_dispatch` create tasks in dependency order, set `blockedBy` to created task ids and `writeScopes` from `scope:` |
+| Idempotency | same AC + same contract stamp + pending/in-progress task = reused (`skippedExisting`), never multiplied by re-checks |
+| Ownership | `goal_gate_dispatch({assign: {"AC-2": "engineer"}})` reassigns the created task to a member |
+| Visibility | `goal_gate_status` / `goal_gate_check` return `team` (members, tasks mapped to ACs, ready/unowned counts) and `nextActions` (`dispatch-repairs`, `collect-team`, `assign-ready-tasks`, `stop-budget`, …) |
+| Concurrency | `goal_gate_check`/`stamp`/`dispatch`/completion interception take a ledger lock; a concurrent caller gets `[goal-gate:busy]` instead of corrupting rounds/baselines |
+| Non-Lead callers | get `suggestions` (subject/description/scope/depends) instead of a fake dispatch; the protocol falls back to `subagent`/`subagent_fork` or `task_board_create` |
+
+## Eval design with grilling / 用 grilling 设计评估
+
+`goal_gate_grill` is a read-only attack on the contract, derived from goal-loop's grilling/contract-forge discipline. It returns `findings[severity, ac, issue, suggestion]`, the remaining `questions` for the user, `metricDesign` advice per optimize AC, and `goodhart` gaming paths. `verdict: ready` requires no high/medium findings. The `goal-loop-grill` skill teaches the interview frontier: ask what "done" means, how a cheap change could game the number, what known-bad case proves refusal, what baseline/spread was measured, and which evidence a judge must bind. Fix findings → re-grill → `goal_gate_baseline` → stamp.
+
 ## Read-only status and audit / 只读状态与审计
 
 - `goal_gate_status({includeHistory?})` / `/goal-gate`: contract/stamp/approval, loop, counters, digest and bound digest, round/time budgets, idle status, recent history. It runs **no checks** and burns no round.
 - `goal_gate_audit({})` / `/goal-audit`: contract parses, stamp matches, not BLOCKED, last evaluation is GO under the current contract, digest not stale, preflight/never-failed advisories, budget state. `violations` must be empty before claiming completion.
+- `goal_gate_doctor` / `/goal-doctor` is the deployment self-check: registered tools, provider-visible object parameter schemas, commands, runtime skills, Agent Teams membership and contract readability. Run it first when a profile looks broken.
 - Want current truth? That is `goal_gate_check` — an experiment that costs a round. A no-change re-evaluation is named `duplicate-evaluation`.
 
 ## Fallback CLI / bash 兜底
@@ -201,7 +228,7 @@ A resumed session may lack the plugin's tool table. The same ledger and the same
 <abs-node> test/run-local.mjs
 ```
 
-The real `@deepseek-ai/dsh-tools` lives inside the DSH Host and is not importable outside it, so the entry falls back to a parameter-schema-compiling shim. Tests never write a `node_modules/@deepseek-ai/dsh-tools` shim into the package directory: in a `link:` install that shim wins module resolution and the Host would register un-compiled parameter schemas (the provider rejects them with `type: null`). The suite covers core judgement, wiring (all tools/commands/skills, provider-visible parameter schemas), ledger/audit/stamp, red-team defences, purity, load-safety without commands, and the v0.7 surfaces (fuses, task-board claims, dispatch, efficiency, reset). The real-host registration contract is verified against the extracted 0.2.1-rc.2 packages; see `docs/platform-contract.md`.
+The real `@deepseek-ai/dsh-tools` lives inside the DSH Host and is not importable outside it, so the entry falls back to a parameter-schema-compiling shim. Tests never write a `node_modules/@deepseek-ai/dsh-tools` shim into the package directory: in a `link:` install that shim wins module resolution and the Host would register un-compiled parameter schemas (the provider rejects them with `type: null`). The suite covers core judgement, wiring (all tools/commands/skills, provider-visible parameter schemas), ledger/audit/stamp, red-team defences, purity, load-safety without commands, the v0.7 surfaces (fuses, task-board claims, dispatch, efficiency, reset) and the v0.8 surfaces (scope/depends waves, idempotent/blocked dispatch, team snapshot/nextActions, grilling, baseline/spread, ledger lock). The real-host registration contract is verified against the extracted 0.2.1-rc.2 packages; see `docs/platform-contract.md`.
 
 ## License / 许可
 

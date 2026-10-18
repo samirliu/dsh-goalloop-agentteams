@@ -14,7 +14,7 @@ const ctx = {
   on: () => () => {},
 };
 assert.doesNotThrow(() => mod.apply(ctx, {}));
-assert.deepEqual(registered.sort(), ['goal_gate_audit', 'goal_gate_check', 'goal_gate_dispatch', 'goal_gate_init', 'goal_gate_stamp', 'goal_gate_status', 'goal_loop_at'], 'all tools register without commands');
+assert.deepEqual(registered.sort(), ['goal_gate_audit', 'goal_gate_baseline', 'goal_gate_check', 'goal_gate_dispatch', 'goal_gate_doctor', 'goal_gate_grill', 'goal_gate_init', 'goal_gate_stamp', 'goal_gate_status', 'goal_loop_at'], 'all tools register without commands');
 console.log('✓ apply() loads with commands service ABSENT (no boot failure)');
 console.log('✓ inject is ["tools"], commands registered lazily');
 console.log('\nLoad-safety test passed.');

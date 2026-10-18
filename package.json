@@ -1,7 +1,7 @@
 {
   "name": "dsh-goalloop-agentteams",
-  "version": "0.7.1",
-  "description": "goal-loop for DeepSeek Harness: contract-first acceptance criteria, a deterministic gate that re-runs every AC itself (zero model trust), a human approval stamp that freezes done (R3), BROKEN-vs-unverifiable fail taxonomy, content-bound tree digests, false-complete ratchet, round/time budgets, judged evidence binding (artifact+sha256, calib), sd/var noise bands, minimize, strategy/efficiency attribution, read-only status/audit, and native Agent Teams dispatch. Registers the goal-loop and goal-loop-contract skills at runtime; drives the loop from /goal-loop-at or goal_loop_at.",
+  "version": "0.8.0",
+  "description": "goal-loop for DeepSeek Harness, Agent Teams-native: contract-first acceptance criteria, a deterministic gate that re-runs every AC itself, R3 approval stamp, BROKEN-vs-unverifiable taxonomy, content digests, false-complete ratchet, round/time fuses, judged evidence binding + calib, baseline/spread measurement, scope/depends-aware dispatch with dependency waves and idempotent repair tasks, team status + nextActions, ledger lock for concurrent members, and grilling-style eval/metric audit. Registers goal-loop, goal-loop-contract and goal-loop-grill skills at runtime.",
   "type": "module",
   "main": "lib/index.js",
   "exports": {
@@ -41,7 +41,8 @@
     "acceptance-gate",
     "verification",
     "quality-gate",
-    "skills"
+    "skills",
+    "grilling"
   ],
   "dsh": {
     "bundle": {
