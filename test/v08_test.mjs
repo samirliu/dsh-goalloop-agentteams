@@ -252,7 +252,7 @@ AC-1 | metric | check: \`printf 'm=5\\n'\` | metric: \`m=([0-9.]+)\` | expected:
   const exec = { agent: { session: { header: { cwd: work } } } };
   const report = await call(reg, 'goal_gate_doctor', {}, exec);
   assert.equal(report.ok, true, JSON.stringify(report.notes));
-  assert.equal(report.tools.length, 10);
+  assert.equal(report.tools.length, 13);
   assert.ok(report.tools.every((t) => t.parametersObject));
   assert.ok(report.skills.includes('goal-loop-grill'));
   console.log('✓ v0.8 doctor: tools/schemas/skills/team diagnosable');

@@ -27,6 +27,7 @@ objective
 | Contract before work | `.goal-gate/goal.md`; `goal_gate_stamp` freezes it + budgets | "done" is the user's definition, not the model's |
 | Wave planning | `depends:` → topological `plan.waves`; `scope:` → write scope | parallel work without merge chaos |
 | Dispatch | native Agent Teams tasks with `blockedBy`/`writeScopes`; idempotent by contract stamp | re-checks never multiply the board |
+| Staffing | `goal_gate_staff` previews member→AC/wave; `spawn:true` creates teammates, assigns tasks and sends a brief | the team is a real roster, not a plan |
 | Convergence | `goal_gate_check` is the only GO authority; `nextActions` routes the next step | no "continue until it feels done" |
 | Stop rules | round budget, wall-clock budget, BLOCKED (2 false completes), loop-idle | grinding and self-declaration are both named |
 | Human path | `/goal-stamp`, `/goal-reset`, approval seam for stamp | recovery and approval stay human |
@@ -85,13 +86,15 @@ or add a judged horizon. `goal_gate_grill` repeats that question mechanically in
 |---|---|
 | `ctx.get('agentTeams')` (optional) | membership probe, `createTask`, `listTasks`, `listMembers`, `updateTask` |
 | `team_task_update` / `task_board_manage move-done` | completion interceptor (goal vs task claim; strict vs goal-only) |
-| `team_task_*` model tools | the plugin does not reimplement them; it produces briefs and reads the board |
+| `team_task_*` model tools | the plugin does not reimplement them; it produces briefs, reads the board, and can staff/assign members |
+| `goal_gate_collect` | maps task completion back to ACs; `readyToCheck` is the team-side signal that the gate should run |
+| `goal_gate_judge` | cold-seat review tasks for judged ACs (artifact/digest/calib brief) |
 | task `blockedBy` / `writeScopes` | generated from `depends:` / `scope:`; never invented |
 | members' `inactive`/`running` | surfaced in `team.members`; `nextActions` says whether to wait or wake |
-| concurrent callers | ledger lock turns races into explicit `busy`, not corrupted state |
+| concurrent callers | ledger lock turns races into explicit `busy` (with a short wait) or a retry, not corrupted state |
 
-The plugin never writes the task-board ledger, never spawns teammates on its own, and
-never claims completion. Those remain the model's / user's / gate's jobs respectively.
+The plugin never writes the task-board ledger, never spawns teammates without an explicit
+`spawn:true`, and never claims completion. Those remain the model's / user's / gate's jobs respectively.
 
 ## What this intentionally does not do
 

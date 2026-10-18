@@ -52,6 +52,9 @@ before changing the gate.
 9. **Eval design is attacked before it is trusted.** A contract change that adds or
    changes an AC should keep `goal_gate_grill` at `ready` and keep optimize baselines
    recorded by `goal_gate_baseline`.
+10. **Staffing is opt-in.** `goal_gate_staff` must stay a read-only preview unless the
+    caller passes `spawn:true`; `goal_gate_collect` and `goal_gate_judge` are read-only
+    with respect to the gate ledger (judge creates team tasks, not rounds).
 7. **Stamp is the user's signature.** Any post-stamp contract edit voids approval;
    completion claims are denied `contract-revised` until an explicit re-stamp. Never
    auto-stamp from `goal_loop_at`.
