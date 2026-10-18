@@ -12,7 +12,7 @@ function makeCtx({ team } = {}) {
   const cmds = [];
   const skills = [];
   const listeners = [];
-  const skillsService = { register: (s) => skills.push(s) };
+  const skillsService = { register: (s) => skills.push(s), list: async () => skills.map((s) => ({ name: s.name })) };
   const ctx = {
     tools: { register: (t) => tools.push(t) },
     inject: (_deps, fn) => fn({ commands: { register: (c) => cmds.push(c) }, skills: skillsService, get: (k) => (k === 'skills' ? skillsService : undefined) }),
@@ -36,17 +36,17 @@ function claimDecision(reg, exec, name, args) {
 {
   const reg = makeCtx();
   mod.apply(reg.ctx, {});
-  assert.deepEqual(reg.skills.map((s) => s.name).sort(), ['goal-loop', 'goal-loop-contract'], 'runtime skills registered');
+  assert.deepEqual(reg.skills.map((s) => s.name).sort(), ['goal-loop', 'goal-loop-contract', 'goal-loop-grill'], 'runtime skills registered');
   for (const s of reg.skills) {
     assert.match(s.content, /^# /, `${s.name} body has a heading`);
     assert.ok(!/^---/m.test(s.content), `${s.name} body excludes frontmatter`);
     assert.equal(s.source, 'runtime');
     assert.ok(s.path && fs.existsSync(s.path), `${s.name} exposes its file path`);
   }
-  assert.deepEqual(reg.cmds.map((c) => c.name).sort(), ['goal-audit', 'goal-gate', 'goal-loop-at', 'goal-reset', 'goal-stamp']);
+  assert.deepEqual(reg.cmds.map((c) => c.name).sort(), ['goal-audit', 'goal-baseline', 'goal-doctor', 'goal-gate', 'goal-grill', 'goal-loop-at', 'goal-reset', 'goal-stamp']);
   for (const t of reg.tools) assert.equal(typeof t.output.render, 'function', `${t.name} declares output.render`);
   for (const c of reg.cmds) assert.ok(!c.input || c.input.hint.length > 0, `${c.name} never declares an empty hint`);
-  console.log('✓ v0.7 registration: 7 tools + 5 commands + 2 runtime skills');
+  console.log('✓ v0.7 registration: core tools + commands + runtime skills');
 }
 
 // ── 2. stamp (R3): approve -> edit contract -> contract-revised denies mission control ──
@@ -199,7 +199,9 @@ function claimDecision(reg, exec, name, args) {
   const work = fs.mkdtempSync('/tmp/v07-dispatch-');
   const lead = { lead: true, session: { header: { cwd: work } } };
   const member = { lead: false, session: { header: { cwd: work } } };
-  const loop = await call(reg, 'goal_loop_at', { objective: 'dispatch', acs: ['one', 'two'], dispatch: true }, { agent: lead });
+  await call(reg, 'goal_loop_at', { objective: 'dispatch', acs: ['one', 'two'] }, { agent: lead });
+  fs.writeFileSync(path.join(work, '.goal-gate', 'goal.md'), 'objective: dispatch\nAC-1 | one | check: `test -d .` | expected: exit=0\nAC-2 | two | check: `test -d .` | expected: exit=0\n');
+  const loop = await call(reg, 'goal_loop_at', { objective: 'dispatch', dispatch: true }, { agent: lead });
   assert.equal(loop.dispatch.kind, 'agent-teams');
   assert.equal(loop.dispatch.dispatched.length, 2, 'one native team task per AC');
   assert.equal(created.length, 2);

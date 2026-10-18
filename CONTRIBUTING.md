@@ -42,6 +42,16 @@ before changing the gate.
 6. **Digest scope.** `.goal-gate/` (ledger + evidence) is excluded; everything else is
    content-hashed. Checks must not mutate the tree outside `.goal-gate/` — the gate
    returns `check-mutated-tree`.
+7. **Team metadata is contract metadata.** `scope:` drives `writeScopes`, `depends:`
+   drives `blockedBy` and `plan.waves`; unknown/self/cyclic dependencies are
+   `state-error`. Dispatch is idempotent by `[goal-gate <stamp>]` subject, and no
+   operation may write the task-board ledger itself.
+8. **Concurrency is explicit.** Check/stamp/dispatch/completion interception take the
+   `.goal-gate/lock` ledger lock; a concurrent caller gets `busy`, never a silent
+   overwrite of rounds, baselines or digests.
+9. **Eval design is attacked before it is trusted.** A contract change that adds or
+   changes an AC should keep `goal_gate_grill` at `ready` and keep optimize baselines
+   recorded by `goal_gate_baseline`.
 7. **Stamp is the user's signature.** Any post-stamp contract edit voids approval;
    completion claims are denied `contract-revised` until an explicit re-stamp. Never
    auto-stamp from `goal_loop_at`.
@@ -88,8 +98,9 @@ on the next model step; tool/command sets are composed at boot.
 - [ ] Kernel change → new smoke/redteam assertion for both the pass and the fail side
 - [ ] New tool / tool key → schema + renderer + wiring key-subset sample + v07 test
 - [ ] New command → real command fiber check (list it) and non-empty hint if parameterized
-- [ ] New contract token → parser + judgement + preflight + skill grammar + docs
+- [ ] New contract token → parser + judgement + preflight + grill + skill grammar + docs
 - [ ] New lifecycle state → status + audit + fallback CLI + defect-ledger row
+- [ ] New team surface → fake `ctx.get('agentTeams')` test for Lead/non-Lead, deps, dedupe, lock
 - [ ] `package.json` version and `README`/`README.zh` updated together
 - [ ] `git diff --check`; run `test/run-local.mjs`; run the real-registry harness
 - [ ] Commit message names the defect numbers it closes; branch from `main`

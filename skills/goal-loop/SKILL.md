@@ -33,13 +33,18 @@ parallel or solo; judging has one mode. **The gate decides completion; you do no
    `preflight` and (with `dispatch:true`) `dispatch`; each `acs` becomes one AC
    with the fail-closed `test -f TODO-REPLACE-ME` check. `goal_gate_init({})`
    writes the skeleton only; `protocol` is the run checklist.
-2. Shape the ACs; load **goal-loop-contract** when criteria are fuzzy, the
+2. Shape the ACs; load **goal-loop-contract** when criteria are fuzzy, then **goal-loop-grill** to attack the eval/metric, the
    objective needs optimizing, or a judged AC is likely. One AC per line,
    with an exact `check:` command that can fail — and at least one runtime AC
    that executes the deliverable itself.
-3. Smoke-run every check on the current tree before stamping. The smoke run of
-   a metric AC **is** its baseline (repeat at least twice on noisy metrics).
-   Red is expected here; a check that cannot fail (a tautology) is not a check.
+3. Pre-stamp evaluation design: load **goal-loop-grill** and run
+   `goal_gate_grill({deep?})`. Fix every high/medium finding (tautology,
+   unfalsifiable claim, Goodhart proxy, missing runtime evidence, judged
+   without digest/calib, missing noise band, overlapping scopes). Then run
+   `goal_gate_baseline({samples?})` for every maximize/minimize AC; the smoke
+   run of a metric AC is not a baseline until it is *measured* (repeat at
+   least twice and record mean + spread). Red is expected here; a check that
+   cannot fail (a tautology) is not a check.
 4. Present the one-screen summary and get explicit approval:
 
    | Field | Content |
@@ -61,11 +66,14 @@ parallel or solo; judging has one mode. **The gate decides completion; you do no
 objective: <one-line goal>
 deliverable: <path to the artifact itself>
 exit: goal-only | strict
-AC-N | <yes/no statement> | check: `<failable command>` | [probe: `<instrument check>`] | [metric: `<regex, one capture group>`] | [baseline: delta|abs] | [timeout: <seconds>] | [tolerance: <relative, e.g. 0.05>] | [sd: `<regex>`] | [var: `<regex>`] | [calib: good=<file> bad=<file>] | expected: exit=0 | exit=N | <=N | >=N | <N | >N | =N | !=N | maximize | minimize | judged
+AC-N | <yes/no statement> | check: `<failable command>` | [probe: `<instrument check>`] | [metric: `<regex, one capture group>`] | [baseline: delta|abs] | [timeout: <seconds>] | [tolerance: <relative, e.g. 0.05>] | [sd: `<regex>`] | [var: `<regex>`] | [calib: good=<file> bad=<file>] | [scope: <path[,path...]>] | [depends: AC-x[,AC-y]] | expected: exit=0 | exit=N | <=N | >=N | <N | >N | =N | !=N | maximize | minimize | judged
 ```
 
 - Field order is fixed (`check | probe | metric | baseline | timeout |
-  tolerance | sd | var | calib | expected`); any other order is state-error.
+  tolerance | sd | var | calib | scope | depends | expected`); any other
+  order is state-error. `scope:` is the write scope for team dispatch
+  (workspace-relative prefixes); `depends:` builds the dependency graph and
+  the dispatch waves. Unknown/cyclic dependencies are state-error.
 - `probe:` runs first and must pass before a metric number is trusted. On
   `judged`, `check:` produces evidence and `probe:` judges it (exit code = verdict).
 - `metric:` extracts one capture group from stdout after ANSI stripping; use
@@ -91,9 +99,17 @@ AC-N | <yes/no statement> | check: `<failable command>` | [probe: `<instrument c
   (`task_board_create`) when teams are unavailable; solo when the work does
   not split into ≥2 independent scopes.
 - `goal_loop_at({dispatch:true})` creates one native Agent Teams task per AC
-  for a Team Lead. `goal_gate_dispatch({includeUnverifiable?})` turns current
-  failed/broken (and optionally unverifiable) ACs into tasks and returns `gate`, `kind`, `dispatched`,
-  `failed`, `reason?`, `suggestions?`; a non-Lead gets suggestions.
+  for a Team Lead, ordered by `depends:` into waves (`plan.waves`) and carrying
+  `scope:` as `writeScopes`. `goal_gate_dispatch({includeUnverifiable?, assign?})`
+  turns current failed/broken (and optionally unverifiable) ACs into tasks and
+  returns `gate`, `kind`, `dispatched`, `failed`, `skippedExisting`,
+  `reason?`, `suggestions?`. It is idempotent: a pending/in-progress task with
+  the same contract stamp is reused, not duplicated; `assign` maps
+  `{ "AC-1": "member" }` to owners. A non-Lead gets suggestions.
+- `goal_gate_status` includes a `team` snapshot for a Team Lead: members,
+  tasks mapped to ACs, ready/unowned counts — and `nextActions`
+  (`dispatch-repairs`, `collect-team`, `assign-ready-tasks`, `audit-and-claim`,
+  `stop-budget`, …). Follow the action list instead of guessing the next step.
 - Brief each item: subject, exact output paths, scope, pass condition = the
   named `check`, evidence to return. Work items never write the ledger;
   the gate's own check commands may write evidence under
@@ -111,14 +127,15 @@ AC-N | <yes/no statement> | check: `<failable command>` | [probe: `<instrument c
   `broken`), `round`/`maxRounds`/`remainingRounds`, `bestScore`, `regression`,
   `trend`, `digestBefore`/`digestAfter`/`treeMoved`, `failedActions`,
   `neverFailed`, `preflight`, `idleHours`, `timeRemainingMinutes`,
-  `timeExhausted`, `efficiency`.
+  `timeExhausted`, `efficiency`, `nextActions`, and (for a Team member) `team`.
 - Checks are read-only: a workspace change is refused `check-mutated-tree`
   (`treeMoved`). Put check-produced artifacts (renders, logs, verdict files read
   by probes) under `.goal-gate/evidence/` (digest-excluded); a judged
   `artifact:` may be the deliverable (read-only) or an evidence file there.
 - Before any claim run `goal_gate_audit({})`: contract parses, stamp matches,
   not BLOCKED, last check is GO, digest fresh; warns on soft-unverifiable ACs,
-  preflight/neverFailed issues and budget. Non-ok `violations` blocks.
+  preflight/neverFailed issues, missing optimize baselines and budget. Non-ok
+  `violations` blocks.
 - Record the wave: `strategy` labels the attack direction, `note` carries
   rulings and repair summaries.
 
@@ -183,9 +200,9 @@ user re-stamps). Otherwise record a `Ruling: <decision> — <reason> — <if wro
 ## Ledger and fallback
 
 `.goal-gate/`: `goal.md` (contract), `loop.json` (loop/budget/status),
-`state.json` (counters, digests, baselines, bestScore, lastRunAt),
+`state.json` (counters, digests, baselines, spreads, bestScore, lastRunAt, approval),
 `history.jsonl` (one line per evaluation); lead-only. If tools are unavailable,
-use `<abs-node> <plugin>/bin/gate.mjs check|status|audit --cwd <workspace>`
+use `<abs-node> <plugin>/bin/gate.mjs check|status|audit|stamp|reset --cwd <workspace>`; `goal_gate_doctor` self-checks the deployment (tools, parameter schemas, commands, skills, team membership).
 (node from config `node` or `process.execPath`; never bare `node`).
 
 ## Worked loop

@@ -38,6 +38,13 @@
 | 29 | 循环身份漂移 | goal_loop_at 复用旧 loop.createdAt;目标变了却沿用旧契约/轮次/历史 | 目标不一致 → `objective-drift`;只有新建契约才换 loop 时钟 | v07:objective drift |
 | 30 | CLI 状态字段错 | `bin/gate.mjs status` 把 stamp 报成 AC 数量 | 改为真实 contractStamp;补齐 audit/stamp/reset/status | ledger:gate.mjs CLI;v07 |
 | 31 | 证据目录无家 | 检查写工作区会被 20 的 mutation guard 判无效,但没有文档化的证据目录 | `.goal-gate/evidence/`(摘要排除);judged artifact 可指向交付物本体或证据文件 | skill 文档 + smoke:check-mutated-tree |
+| 32 | **参数 schema 无根 type(启动即瘫痪)** | 测试把 identity `@deepseek-ai/dsh-tools` shim 留在 link 安装的包目录里 → Host 解析到 shim → `parameters` 是裸属性表;provider 报 `Invalid schema for function 'goal_gate_audit': schema must be a JSON Schema of 'type: "object"', got 'type: null'` | 测试不再写 node_modules shim;入口 fallback 负责把属性表编译成 `{type:'object',properties,required?}`;wiring 断言每个工具 parameters.type==='object' | wiring:schema 断言;真实 registry harness 9 工具 |
+| 33 | 团队派工无依赖图 | `scope:`/`depends:` 没进契约文法;并行任务无序,写范围重叠 | 文法新增 scope:/depends;parse/validate(未知/自依赖/环=state-error);`plan.waves` 拓扑分波;task brief 携带 scope/depends | v08:grammar/plan |
+| 34 | 重查重复建卡 | 每次 `goal_gate_dispatch` 都新建任务;团队板被重复 repair 卡淹没 | 任务 subject = `[goal-gate <stamp>] AC-id: ...`;pending/in-progress 同 subject 复用(`skippedExisting`) | v08:dispatch idempotency |
+| 35 | 团队并发污染账本 | 多个成员同时 check/stamp/声明完成 → round/baseline/digest 互相覆盖 | `.goal-gate/lock` O_EXCL 账本锁(10min stale);check/stamp/dispatch/intercept 串行化,抢不到返回 busy | v08:lock |
+| 36 | eval 设计没有对抗面 | 契约能写但没人问"能不能刷分/能不能失败/证据绑没绑";问题到烧完轮才发现 | `goal-loop-grill` skill + `goal_gate_grill` 工具:findings/questions/metricDesign/goodhart;ready 需无 high/medium | v08:grill |
+| 37 | 基线/噪声只靠口头 | optimize AC 的首轮值直接当水位,没有均值/离散度;后续 band 靠猜 | `goal_gate_baseline` 跑 N 次,写 state.baselines/spreads;runGate 在无 sd/var 输出时使用已记录 spread;audit 对未建基线亮黄牌 | v08:baseline/spread;v08:audit |
+| 38 | 下一步不可执行 | 门控给出 failedActions,但团队里"现在该派工/等谁/停止"要靠模型猜 | check/status 输出 `nextActions`(dispatch-repairs/collect-team/assign-ready-tasks/audit-and-claim/stop-budget…);status 带 team 快照 | v08:team/nextActions |
 
 ## 质量演进
 
@@ -51,6 +58,8 @@
 - **闭环保险丝**(v0.7.0):轮次/墙钟预算绑定盖章并拦截、人类 reset、objective-drift、任务板 move-done 纳入拦截
 - **宿主契约**(v0.7.0):output.render、输出 schema 子集、commands 子 Context、skill 运行时注册——按 0.2.1-rc.2 解包产物实测修复(见 docs/platform-contract.md)
 - **DSH 原生面**(v0.7.0):原生 Agent Teams 任务派工(Lead)、只读 status/audit、策略/效率归因、两个打包 skill
+- **团队闭环**(v0.8.0):scope/depends 文法 + 分波派工、幂等 repair、owner 指派、团队快照/nextActions、账本锁
+- **评估设计**(v0.8.0):grilling skill + grill 工具、基线与离散度测量、数据驱动噪声带、第三个运行时 skill
 
 ## 运营发现(循环侧,非内核缺陷)
 

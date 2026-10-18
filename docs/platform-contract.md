@@ -99,7 +99,22 @@ keep working by default.
   with `schema must be a JSON Schema of 'type: "object"', got 'type: null'` (observed
   on `goal_gate_audit`, which has an empty parameter map).
 
-## 8. What the 0.6.x release got wrong
+## 8. Agent Teams surface used by v0.8
+
+- `ctx.get('agentTeams')` resolves the experimental team service; it must not be
+  declared in `inject` (optional). `tryMembership(agent)` returns `undefined` for
+  non-members, and `listMembers` / `listTasks` are synchronous, read-only reads.
+- `createTask(caller, {subject, description, blockedBy?, writeScopes?})` returns a
+  revision-1 `TeamTaskView`; `updateTask(caller, {taskId, expectedRevision, action,
+  owner?})` is compare-and-set. `reassign` needs the exact revision.
+- Task subjects are free text; this plugin uses `[goal-gate <stamp>] …` as the
+  idempotency key and parses `AC-N` back out for the team→AC mapping.
+- Model-facing task tools are `team_task_*`; a manual
+  `task_board_manage(action:'move-done')` is also a completion claim.
+- Concurrent operations are serialized by the plugin's own ledger lock; the team
+  service itself does not lock the goal ledger.
+
+## 9. What the 0.6.x release got wrong
 
 The 0.6.x plugin was verified against DSH 0.2.0-rc.2 and later looked healthy because
 only its **deny** path was exercised end-to-end. On 0.2.1-rc.2:
