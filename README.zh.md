@@ -43,7 +43,32 @@ dsh plugin --profile <profile> add github:samirliu/dsh-goalloop-agentteams
 
 包内声明了 `dsh.bundle` 与 `cordis.patch.yml`，`dsh plugin add` 会把 `goal-gate` 行挂进组合；安装后重启 profile（host 代码、命令与 skill 在启动时组装）。
 
+⚠️ **别装 0.6.x**：v0.6.x 早于 DSH 0.2.1-rc.2 的工具注册契约（只声明 schema、没有 `render`），装上后每个**成功**的工具调用都会失败，而 `--dump-config` 看不出区别。从 checkout 或 ≥ v0.7.0 的版本安装。
+
 ⚠️ **入口契约**：入口必须导出 `name`（等于 `cordis.patch.yml` 的 id `goal-gate`）以及 `inject`、`apply`；缺 `name` 会被 Host 静默跳过。`link:` 安装时 `@deepseek-ai/dsh-tools` 的解析可能与注册表安装不同，入口先试裸包名再用同形 shim 兜底，两条路径都有测试覆盖。
+
+## 平台支持
+
+门控要自己重跑每条 AC 的 `check`，所以**解释器由门控自己决定**，并且显式写在结论里，不做静默平台假设：
+
+| 平台 | 默认解释器 | 覆盖方式 |
+|---|---|---|
+| Linux / macOS | `/bin/sh -c` | `config.shell` / `GOAL_GATE_SHELL` |
+| Windows | `%COMSPEC%` → `cmd.exe /d /s /c` | `config.shell` / `GOAL_GATE_SHELL`，填 `sh.exe` / `bash.exe` / `pwsh.exe` / `cmd.exe` 的绝对路径 |
+
+- 每轮结论里的 `shell` 字段说明"这条 check 是被谁执行的"（`goal_gate_check`、`goal_gate_status`、`bin/gate.mjs check` 都会带）。
+- 解释器不存在时判 `broken` 并直接点名 *"gate shell not found …"*（配置问题，不是产物不合格）——不会再退化成一串哑巴 `failed`。
+- Windows 上用 `cmd.exe` 跑 POSIX 写法（`test`、`grep`、`&&`、`$VAR`）时，`preflight` 会报 `posix-syntax-on-cmd`，在烧轮次之前提醒你。
+- Windows 上要么把 check 写成 cmd/pwsh 语法，要么把门控指到 POSIX shell：
+
+```yaml
+- id: goal-gate
+  name: dsh-goalloop-agentteams
+  config:
+    shell: 'C:\Program Files\Git\usr\bin\sh.exe'
+```
+
+优先级：`bin/gate.mjs --shell` / 插件 `config.shell` > 环境变量 `GOAL_GATE_SHELL` > 平台默认。
 
 ## 插件配置
 
@@ -56,6 +81,7 @@ dsh plugin --profile <profile> add github:samirliu/dsh-goalloop-agentteams
 | `requireHumanApproval` | `false` | `goal_gate_stamp` 走 DSH approval seam（`ask`） |
 | `intercept` | `true` | 挂载 `tools/pre-execute` 完成声明拦截 |
 | `registerSkills` | `true` | 注册 `goal-loop` / `goal-loop-contract` 运行时 skill |
+| `shell` | 平台默认 | 执行 AC `check`/`probe` 的解释器（见「平台支持」） |
 
 ## 快速开始
 
@@ -181,12 +207,12 @@ AC-N | <yes/no 判定语句> | check: `<可失败命令>` | [probe: `<仪器检�
 恢复会话可能没有插件工具表。同一本账、同一个门控可从任何 shell 驱动（node 用绝对路径，**绝不裸写 `node`**）：
 
 ```sh
-<abs-node> <plugin>/bin/gate.mjs check   --cwd <工作区> [--strategy <s>] [--note <n>]
+<abs-node> <plugin>/bin/gate.mjs check   --cwd <工作区> [--strategy <s>] [--note <n>] [--shell <shell>]
 <abs-node> <plugin>/bin/gate.mjs status  --cwd <工作区>
 <abs-node> <plugin>/bin/gate.mjs audit   --cwd <工作区>
 <abs-node> <plugin>/bin/gate.mjs stamp   --cwd <工作区> [--approved-by <who>] [--max-rounds <n>] [--time-budget-minutes <n>] [--restamp]
 <abs-node> <plugin>/bin/gate.mjs reset   --cwd <工作区> [--new-loop]
-<abs-node> <plugin>/bin/gate.mjs preflight --cwd <工作区>
+<abs-node> <plugin>/bin/gate.mjs preflight --cwd <工作区> [--shell <shell>]
 ```
 
 ## DSH 宿主契约（0.2.1-rc.2 实测）
@@ -197,6 +223,8 @@ AC-N | <yes/no 判定语句> | check: `<可失败命令>` | [probe: `<仪器检�
 - Skill 用 `ctx.skills.register({name, description, content, source, …})` 内存注册；DSH 不扫描包的 `skills/` 目录。
 - 工作区根来自 `exec.agent.session.header.cwd`；没有 `exec.session` / `exec.cwd`。
 - 原生 Agent Teams 服务是 `ctx.get('agentTeams')`（可选，不能 `inject`）；任务是 `team_task_*` 工具，不是 `agent_teams_*`。
+- 门控自己开子进程跑 check：POSIX 用 `/bin/sh -c`，Windows 用 `%COMSPEC%`（见「平台支持」）。`app.asar` 里的模块回退用 `pathToFileURL` 加载——ESM 在 Windows 上不接受裸 `C:\…` 路径（`ERR_UNSUPPORTED_ESM_URL_SCHEME`）。
+- 0.2.1-rc.2 的 Agent 上**没有** `agent.followup(...)`；`/goal-loop-at` 因此把协议放在命令结果里返回，而不是注入对话。
 
 实测证据与探针方法见 `docs/platform-contract.md`。
 
@@ -228,6 +256,12 @@ AC-N | <yes/no 判定语句> | check: `<可失败命令>` | [probe: `<仪器检�
 
 ```sh
 <abs-node> test/run-local.mjs
+```
+
+套件本身平台中立：Windows（`cmd.exe` 门控）与 POSIX（`/bin/sh`）都能跑；换 `GOAL_GATE_SHELL` 就能用同一批文件验证"Windows 上的 POSIX shell"（Git Bash / WSL）：
+
+```sh
+$env:GOAL_GATE_SHELL='C:\Program Files\Git\usr\bin\sh.exe'; <abs-node> test/run-local.mjs
 ```
 
 真实 `@deepseek-ai/dsh-tools` 在 Host 内、Host 外不可 import；入口回退到会编译参数 schema 的 shim。测试**绝不**把 `node_modules/@deepseek-ai/dsh-tools` shim 写进包目录：`link:` 安装时它会赢得模块解析，Host 注册到未编译的参数 schema（provider 报 `type: null`）。套件覆盖判定内核、接线（全部工具/命令/skill、provider 可见参数 schema）、账本/审计/盖章、红队防线、纯度、无 commands 服务的装载安全，v0.7 面（保险丝、任务板声明、派工、效率、reset），v0.8 面（scope/depends 分波、幂等/阻塞派工、团队快照/nextActions、grilling、基线/离散度、账本锁），以及 v0.9 面（编队预览/spawn、收集团队完成度、评审任务、锁等待、horizon 防线）。真实宿主注册契约已对 0.2.1-rc.2 解包产物验证；见 `docs/platform-contract.md`。

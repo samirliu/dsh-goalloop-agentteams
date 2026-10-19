@@ -3,6 +3,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { mkdtemp, ok, fileExists } from './fixtures/shell.mjs';
 
 const registeredTools = [];
 const registeredCmds = [];
@@ -18,6 +19,7 @@ const ctx = {
 };
 
 const mod = await import('../lib/index.js');
+const { parseSkillFile } = mod;
 mod.apply(ctx, {});
 
 // 0.2.1-rc.2 的真实注册契约:output.render 必填;输出 schema 必须是受支持的
@@ -58,6 +60,19 @@ assert.ok(registeredSkills.every(s => typeof s.content === 'string' && s.content
 assert.equal(preExecuteListeners.length, 1);
 console.log('✓ registered:', registeredTools.map(t => t.name).join(', '), '| cmds:', registeredCmds.map(c => c.name).join(', '));
 
+// CRLF checkout 回归:git core.autocrlf=true / Windows 编辑器会把 SKILL.md 存成 CRLF。
+// 解析器必须先归一化行尾,否则 frontmatter 的 `(.*)$` 匹配失败 → description 为空
+// → skill 被静默跳过(仅 Windows checkout 复现,真实仓库实测过一次)。
+{
+  const crlfFile = path.join(mkdtemp('goal-gate-crlf-'), 'SKILL.md');
+  fs.writeFileSync(crlfFile, '---\r\nname: crlf-skill\r\ndescription: >-\r\n  line one\r\n  line two\r\nwhenToUse: >-\r\n  when crlf\r\n---\r\nbody here\r\n');
+  const parsed = parseSkillFile(crlfFile);
+  assert.equal(parsed.meta.name, 'crlf-skill', 'CRLF frontmatter key parses');
+  assert.ok(parsed.meta.description.includes('line two'), 'CRLF folded description block survives');
+  assert.ok(parsed.body.startsWith('body here'), 'CRLF body is trimmed and kept');
+  console.log('✓ CRLF skill frontmatter parses (Windows checkout)');
+}
+
 // 命令形状：handler(invocation) + 可选非空 input.hint（0.2.1-rc.2 拒绝空 hint）
 for (const c of registeredCmds) {
   assert.equal(typeof c.handler, 'function', `${c.name} uses handler(invocation) shape`);
@@ -66,7 +81,7 @@ for (const c of registeredCmds) {
 console.log('✓ command shape: handler(invocation) + optional non-empty hint');
 
 // 隔离工作区；用 agent.session.header.cwd 指向它（真实插件取 cwd 的方式）
-const work = fs.mkdtempSync('/tmp/goal-gate-wiring-');
+const work = mkdtemp('goal-gate-wiring-');
 const agent = { session: { header: { cwd: work } } };
 const listen = preExecuteListeners[0];
 const next = () => ({ kind: 'allow' });
@@ -80,7 +95,7 @@ assert.deepEqual(await listen(exec('update_goal', { action: 'complete' }), next)
 console.log('✓ [0] no contract -> pass through (not a hard block)');
 
 // [0b] 契约存在但为空 → 拦（配置错了要暴露，不能静默放行）——用独立目录，不干扰 init 流
-const work2 = fs.mkdtempSync('/tmp/goal-gate-wiring2-');
+const work2 = mkdtemp('goal-gate-wiring2-');
 fs.mkdirSync(path.join(work2, '.goal-gate'), { recursive: true });
 fs.writeFileSync(path.join(work2, '.goal-gate', 'goal.md'), '');
 const d0b = await listen({ name: 'update_goal', arguments: { action: 'complete' }, agent: { session: { header: { cwd: work2 } } } }, next);
@@ -97,7 +112,7 @@ console.log('✓ [1] goal_gate_init created contract at', initRes.path);
 
 // 写一条会过的契约
 fs.writeFileSync(path.join(ledger, 'goal.md'), `objective: 冒烟
-AC-1 | 一定通过 | check: \`test -f a.txt\` | expected: exit=0
+AC-1 | 一定通过 | check: \`${fileExists('a.txt')}\` | expected: exit=0
 `);
 
 // [2] 门控通过 → allow，且记录 digest
@@ -109,8 +124,8 @@ console.log('✓ [2] gate GO -> allow, digest recorded =', st2.digests.goal);
 
 // [3] 契约改成必失败（改 .goal-gate 内文件，摘要排除它，所以摘要稳定）→ NO-GO
 fs.writeFileSync(path.join(ledger, 'goal.md'), `objective: 冒烟
-AC-1 | 一定通过 | check: \`test -f a.txt\` | expected: exit=0
-AC-2 | 一定失败 | check: \`test -f NOPE\` | expected: exit=0
+AC-1 | 一定通过 | check: \`${fileExists('a.txt')}\` | expected: exit=0
+AC-2 | 一定失败 | check: \`${fileExists('NOPE')}\` | expected: exit=0
 `);
 const d3 = await listen(exec('update_goal', { action: 'complete' }), next);
 assert.equal(d3.kind, 'deny');
@@ -142,14 +157,14 @@ console.log('✓ [6] repeated false-completes ->', d6b.info.code, '(falseComplet
 
 // [7] 完成声明分级治理
 // [7a] strict 缺省：任务级声明按全量契约硬拦 + 计数（旧名 update_task 兼容）
-const work7a = fs.mkdtempSync('/tmp/goal-gate-wiring7a-');
+const work7a = mkdtemp('goal-gate-wiring7a-');
 const agent7a = { session: { header: { cwd: work7a } } };
 const exec7a = (name, args) => ({ name, arguments: args, agent: agent7a });
 fs.writeFileSync(path.join(work7a, 'a.txt'), 'x\n');
 fs.mkdirSync(path.join(work7a, '.goal-gate'), { recursive: true });
 fs.writeFileSync(path.join(work7a, '.goal-gate', 'goal.md'), `objective: strict 缺省
-AC-1 | 过 | check: \`test -f a.txt\` | expected: exit=0
-AC-2 | 不过 | check: \`test -f NOPE\` | expected: exit=0
+AC-1 | 过 | check: \`${fileExists('a.txt')}\` | expected: exit=0
+AC-2 | 不过 | check: \`${fileExists('NOPE')}\` | expected: exit=0
 `);
 const d7a = await listen(exec7a('update_task', { status: 'completed', task_id: 't1' }), next);
 assert.equal(d7a.kind, 'deny', 'legacy update_task gated under default strict policy');
@@ -158,15 +173,15 @@ const st7a = JSON.parse(fs.readFileSync(path.join(work7a, '.goal-gate', 'state.j
 assert.equal(st7a.falseCompletes, 1, 'strict task claim counts a strike');
 
 // [7b] exit: goal-only：任务级声明放行 + 记账（多任务循环不卡死）
-const work7b = fs.mkdtempSync('/tmp/goal-gate-wiring7b-');
+const work7b = mkdtemp('goal-gate-wiring7b-');
 const agent7b = { session: { header: { cwd: work7b } } };
 const exec7b = (name, args) => ({ name, arguments: args, agent: agent7b });
 fs.writeFileSync(path.join(work7b, 'a.txt'), 'x\n');
 fs.mkdirSync(path.join(work7b, '.goal-gate'), { recursive: true });
 fs.writeFileSync(path.join(work7b, '.goal-gate', 'goal.md'), `objective: goal-only 循环
 exit: goal-only
-AC-1 | 过 | check: \`test -f a.txt\` | expected: exit=0
-AC-2 | 不过 | check: \`test -f NOPE\` | expected: exit=0
+AC-1 | 过 | check: \`${fileExists('a.txt')}\` | expected: exit=0
+AC-2 | 不过 | check: \`${fileExists('NOPE')}\` | expected: exit=0
 `);
 const d7b = await listen(exec7b('agent_teams_update_task', { status: 'completed', task_id: 't1' }), next);
 assert.equal(d7b.kind, 'allow', 'goal-only: mid-loop task completion passes');
@@ -192,19 +207,19 @@ assert.notEqual(work, process.cwd(), 'test uses agent cwd, not process.cwd');
 console.log('✓ [8] workspace root resolved from agent.session.header.cwd');
 
 // ── 真实工具名接线（dsh-agent-teams / team task 的完成声明）──────────────────
-const work3 = fs.mkdtempSync('/tmp/goal-gate-wiring3-');
+const work3 = mkdtemp('goal-gate-wiring3-');
 const agent3 = { session: { header: { cwd: work3 } } };
 fs.writeFileSync(path.join(work3, 'a.txt'), 'x\n');
 fs.mkdirSync(path.join(work3, '.goal-gate'), { recursive: true });
 fs.writeFileSync(path.join(work3, '.goal-gate', 'goal.md'), `objective: 真名接线
-AC-1 | 过 | check: \`test -f a.txt\` | expected: exit=0
+AC-1 | 过 | check: \`${fileExists('a.txt')}\` | expected: exit=0
 `);
 const exec3 = (name, args) => ({ name, arguments: args, agent: agent3 });
 assert.equal((await listen(exec3('agent_teams_update_task', { status: 'completed', task_id: 't1' }), next)).kind, 'allow', 'agent_teams_update_task is gated (GO passes)');
 assert.equal((await listen(exec3('team_task_update', { action: 'complete', task_id: 't1' }), next)).kind, 'allow', 'team_task_update is gated (GO passes)');
 fs.writeFileSync(path.join(work3, '.goal-gate', 'goal.md'), `objective: 真名接线
-AC-1 | 过 | check: \`test -f a.txt\` | expected: exit=0
-AC-2 | 不过 | check: \`test -f NOPE\` | expected: exit=0
+AC-1 | 过 | check: \`${fileExists('a.txt')}\` | expected: exit=0
+AC-2 | 不过 | check: \`${fileExists('NOPE')}\` | expected: exit=0
 `);
 const d9a = await listen(exec3('agent_teams_update_task', { status: 'completed', task_id: 't1' }), next);
 assert.equal(d9a.kind, 'deny', 'agent_teams_update_task completed is denied on NO-GO');
@@ -214,7 +229,7 @@ assert.equal(d9b.kind, 'deny', 'team_task_update complete is denied on NO-GO');
 console.log('✓ [9] real tool names wired: agent_teams_update_task / team_task_update gated');
 
 // ── goal_loop_at：契约 + loop.json + 任务 + 协议 ─────────────────────────────
-const work4 = fs.mkdtempSync('/tmp/goal-gate-wiring4-');
+const work4 = mkdtemp('goal-gate-wiring4-');
 const agent4 = { session: { header: { cwd: work4 } } };
 const loopTool = registeredTools.find(t => t.name === 'goal_loop_at');
 const loopRes = await loopTool.execute({ objective: '做一个可验证的报告', acs: ['报告存在', '自检通过'] }, { agent: agent4 });
@@ -237,7 +252,7 @@ console.log('✓ [10] goal_loop_at: contract + loop.json +', loopRes.tasks.lengt
 // 这里把"返回值 ⊆ 声明字段"钉成不变量,任何未声明字段都会被测试抓住。
 {
   // 独立沙箱:先 loop 建契约,再逐工具执行,账本只落在这个目录
-  const iso = fs.mkdtempSync('/tmp/goal-gate-wiring10b-');
+  const iso = mkdtemp('goal-gate-wiring10b-');
   const isoAgent = { session: { header: { cwd: iso } } };
   const isoExec = { agent: isoAgent };
   const loop2 = registeredTools.find(t => t.name === 'goal_loop_at');
@@ -277,7 +292,7 @@ console.log('✓ [10] goal_loop_at: contract + loop.json +', loopRes.tasks.lengt
   // 最毒的形态：空账本首轮 check——bestScore/neverFailed/preflight 全 undefined。
   // 若 jsonSafe 漏掉任何一处，这里立刻炸出来。
   {
-    const iso2 = fs.mkdtempSync('/tmp/goal-gate-wiring10b2-');
+    const iso2 = mkdtemp('goal-gate-wiring10b2-');
     const iso2Agent = { session: { header: { cwd: iso2 } } };
     const initRes = await registeredTools.find(t => t.name === 'goal_gate_init').execute({}, { agent: iso2Agent });
     assert.equal(initRes.created, true);
@@ -291,7 +306,7 @@ console.log('✓ [10] goal_loop_at: contract + loop.json +', loopRes.tasks.lengt
 }
 
 // ── /goal-loop-at 命令（handler 形状 + followup 递协议给 agent）───────────────
-const work5 = fs.mkdtempSync('/tmp/goal-gate-wiring5-');
+const work5 = mkdtemp('goal-gate-wiring5-');
 const followups = [];
 const invocation = {
   rawInput: ' 从命令启动的目标 ',
@@ -322,19 +337,19 @@ assert.equal(JSON.parse(history4[0]).trigger, 'check');
 console.log('✓ [12] goal_gate_check: score/round/trend/failedActions + history.jsonl');
 
 // ── 不回退规则：score 回退 → regression 标记 ────────────────────────────────
-const work6 = fs.mkdtempSync('/tmp/goal-gate-wiring6-');
+const work6 = mkdtemp('goal-gate-wiring6-');
 const agent6 = { session: { header: { cwd: work6 } } };
 fs.writeFileSync(path.join(work6, 'a.txt'), 'x\n');
 fs.mkdirSync(path.join(work6, '.goal-gate'), { recursive: true });
 fs.writeFileSync(path.join(work6, '.goal-gate', 'goal.md'), `objective: 回退规则
-AC-1 | 过 | check: \`test -f a.txt\` | expected: exit=0
+AC-1 | 过 | check: \`${fileExists('a.txt')}\` | expected: exit=0
 `);
 const r6a = await checkTool.execute({}, { agent: agent6 });
 assert.equal(r6a.score, 1);
 assert.equal(r6a.regression, false);
 fs.writeFileSync(path.join(work6, '.goal-gate', 'goal.md'), `objective: 回退规则
-AC-1 | 过 | check: \`test -f a.txt\` | expected: exit=0
-AC-2 | 不过 | check: \`test -f NOPE\` | expected: exit=0
+AC-1 | 过 | check: \`${fileExists('a.txt')}\` | expected: exit=0
+AC-2 | 不过 | check: \`${fileExists('NOPE')}\` | expected: exit=0
 `);
 const r6b = await checkTool.execute({}, { agent: agent6 });
 assert.equal(r6b.score, 0.5);
@@ -343,7 +358,7 @@ assert.equal(r6b.bestScore, 1, 'bestScore holds the high-water mark');
 console.log('✓ [13] no-regression rule: regression flagged, bestScore tracked');
 
 // ── 轮次预算：超过 maxRounds → roundsExhausted ──────────────────────────────
-const work7 = fs.mkdtempSync('/tmp/goal-gate-wiring7-');
+const work7 = mkdtemp('goal-gate-wiring7-');
 const agent7 = { session: { header: { cwd: work7 } } };
 await loopTool.execute({ objective: '轮次预算', maxRounds: 2 }, { agent: agent7 });
 const r7a = await checkTool.execute({}, { agent: agent7 });
@@ -356,14 +371,14 @@ assert.equal(r7a.roundsExhausted, false);
 console.log('✓ [14] round budget: roundsExhausted after maxRounds');
 
 // ── 轮次预算口径：goal-only 任务里程碑记账不吃预算 ──────────────────────────
-const work15 = fs.mkdtempSync('/tmp/goal-gate-wiring15-');
+const work15 = mkdtemp('goal-gate-wiring15-');
 const agent15 = { session: { header: { cwd: work15 } } };
 fs.writeFileSync(path.join(work15, 'a.txt'), 'x\n');
 fs.mkdirSync(path.join(work15, '.goal-gate'), { recursive: true });
 fs.writeFileSync(path.join(work15, '.goal-gate', 'goal.md'), `objective: 轮次预算口径
 exit: goal-only
-AC-1 | 过 | check: \`test -f a.txt\` | expected: exit=0
-AC-2 | 不过 | check: \`test -f NOPE\` | expected: exit=0
+AC-1 | 过 | check: \`${fileExists('a.txt')}\` | expected: exit=0
+AC-2 | 不过 | check: \`${fileExists('NOPE')}\` | expected: exit=0
 `);
 await listen({ name: 'agent_teams_update_task', arguments: { status: 'completed', task_id: 't1' }, agent: agent15 }, next);
 await listen({ name: 'agent_teams_update_task', arguments: { status: 'completed', task_id: 't2' }, agent: agent15 }, next);
@@ -375,12 +390,12 @@ assert.equal(JSON.parse(hist15[0]).trigger, 'task-claim');
 console.log('✓ [15] round budget scope: milestone claims do not consume optimization rounds');
 
 // ── rc=3 BLOCKED：假完成 ≥ 2 后 goal_gate_check 如实报 blocked ──────────────
-const work16 = fs.mkdtempSync('/tmp/goal-gate-wiring16-');
+const work16 = mkdtemp('goal-gate-wiring16-');
 const agent16 = { session: { header: { cwd: work16 } } };
 fs.writeFileSync(path.join(work16, 'a.txt'), 'x\n');
 fs.mkdirSync(path.join(work16, '.goal-gate'), { recursive: true });
 fs.writeFileSync(path.join(work16, '.goal-gate', 'goal.md'), `objective: blocked 上报
-AC-1 | 不过 | check: \`test -f NOPE\` | expected: exit=0
+AC-1 | 不过 | check: \`${fileExists('NOPE')}\` | expected: exit=0
 `);
 await listen({ name: 'update_goal', arguments: { action: 'complete' }, agent: agent16 }, next);
 await listen({ name: 'update_goal', arguments: { action: 'complete' }, agent: agent16 }, next);

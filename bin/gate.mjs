@@ -2,7 +2,7 @@
 // gate.mjs — 门控 CLI(bash 可达的循环驱动兜底入口)
 // 背景:恢复会话可能拿不到 goal_gate_* 工具(实测);循环必须始终可驱动。
 // 用法(绝对路径 node 执行,坏 PATH 机器安全):
-//   node bin/gate.mjs check     [--cwd <dir>] [--strategy <s>] [--note <n>]  跑门控+记账,exit 0 GO / 2 NO-GO / 3 BLOCKED / 4 state-error
+//   node bin/gate.mjs check     [--cwd <dir>] [--strategy <s>] [--note <n>] [--shell <shell>]  跑门控+记账,exit 0 GO / 2 NO-GO / 3 BLOCKED / 4 state-error
 //   node bin/gate.mjs status    [--cwd <dir>]   只读状态(不跑 check、不记账)
 //   node bin/gate.mjs audit     [--cwd <dir>]   声明前审计(只读),exit 0 ok / 1 violations
 //   node bin/gate.mjs stamp     [--cwd <dir>] [--approved-by <who>] [--max-rounds <n>] [--time-budget-minutes <n>] [--restamp]
@@ -24,6 +24,9 @@ const flag = (name) => {
 };
 const has = (name) => args.includes(name);
 const root = flag('--cwd') ?? process.cwd();
+// --shell / GOAL_GATE_SHELL:显式指定门控解释器。POSIX 缺省 /bin/sh,
+// Windows 缺省 %COMSPEC%(cmd.exe);想跑 POSIX 语法就指向 Git Bash/WSL 的 sh。
+const shell = flag('--shell');
 
 function out(obj) { process.stdout.write(`${JSON.stringify(obj, null, 2)}\n`); }
 function fail(code, obj) { out(obj); process.exit(code); }
@@ -75,7 +78,7 @@ const state = readState(root);
 const contract = parseContract(text);
 
 if (cmd === 'preflight') {
-  const warnings = preflightChecks(text, root);
+  const warnings = preflightChecks(text, root, shell);
   out({ contract: cp, acs: contract.acs.length, warnings });
   process.exit(warnings.length ? 1 : 0);
 }
@@ -86,7 +89,7 @@ if (cmd === 'check') {
   const locked = await withLedgerLock(root, async () => {
     const state = readState(root);
     const historyBefore = readHistory(root); // 重评检测/效率归因(recordRun 追加前的历史)
-    const g = runGate(text, { cwd: root, baselines: { ...(state.baselines ?? {}) }, spreads: { ...(state.spreads ?? {}) } });
+    const g = runGate(text, { cwd: root, baselines: { ...(state.baselines ?? {}) }, spreads: { ...(state.spreads ?? {}) }, shell });
     const { baselineUpdates: _b, spreadUpdates: _s, ...gOut } = g;
     const loopBefore = readLoop(root);
     const fin = recordRun(root, state, g, 'check', { strategy, note });
@@ -97,7 +100,7 @@ if (cmd === 'check') {
       return ac ? { id: ac.id, statement: ac.statement, check: ac.check, expected: ac.expected, why: r.why } : { id: r.id };
     });
     const loopNow = readLoop(root);
-    const warnings = preflightChecks(text, root);
+    const warnings = preflightChecks(text, root, shell);
     const idleWarn = idleWarning(state, loopNow);
     if (idleWarn) warnings.push(idleWarn);
     const idle = loopIdleStatus(state, loopNow);

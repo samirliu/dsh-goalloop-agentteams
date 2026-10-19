@@ -3,14 +3,16 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { preflightChecks, neverFailedAcs, recordRun, readHistory, loopIdleStatus, idleWarning, duplicateEvalNote } from '../lib/ledger.js';
+import { mkdtemp, echo, fileExists, showFile } from './fixtures/shell.mjs';
 
 // ── 预检 lint ─────────────────────────────────────────────────────────
 const warnings = preflightChecks(`objective: x
 AC-1 | 裸 node | check: \`node foo.mjs\` | expected: exit=0
 AC-2 | 相对解释器 | check: \`./tools/verify.sh\` | expected: exit=0
-AC-3 | 永真嫌疑 | check: \`echo done\` | expected: exit=0
-AC-4 | 健康 | check: \`test -f a.txt\` | expected: exit=0
+AC-3 | 永真嫌疑 | check: \`${echo('done')}\` | expected: exit=0
+AC-4 | 健康 | check: \`${fileExists('a.txt')}\` | expected: exit=0
 `);
 const kinds = (id) => warnings.filter((w) => w.id === id).map((w) => w.kind);
 assert.ok(kinds('AC-1').includes('bare-runtime'), 'bare node flagged');
@@ -32,17 +34,17 @@ console.log('✓ neverFailedAcs: catches never-failed ACs, respects minRuns');
 // 交付物覆盖 / 运行时面 / judged 绑定提醒
 const w2 = preflightChecks(`objective: x
 deliverable: dist/app.html
-AC-1 | 静态 | check: \`test -f dist/app.html\` | expected: exit=0
-AC-2 | 评审 | check: \`echo ok\` | probe: \`test -f dist/app.html\` | expected: judged
+AC-1 | 静态 | check: \`${fileExists('dist/app.html')}\` | expected: exit=0
+AC-2 | 评审 | check: \`${echo('ok')}\` | probe: \`${fileExists('dist/app.html')}\` | expected: judged
 `);
 assert.ok(w2.some((w) => w.kind === 'no-runtime-ac'), 'all-static contract flagged (no runtime acceptance)');
 const w3 = preflightChecks(`objective: x
-AC-1 | 评审 | check: \`echo ok\` | probe: \`test -f x\` | expected: judged
+AC-1 | 评审 | check: \`${echo('ok')}\` | probe: \`${fileExists('x')}\` | expected: judged
 `);
 assert.ok(w3.some((w) => w.kind === 'judged-without-deliverable'), 'judged without deliverable declaration flagged');
 const w4 = preflightChecks(`objective: x
 deliverable: dist/app.html
-AC-1 | 不碰本体 | check: \`test -f other.txt\` | expected: exit=0
+AC-1 | 不碰本体 | check: \`${fileExists('other.txt')}\` | expected: exit=0
 AC-2 | 运行时 | check: \`node run-app.mjs\` | expected: exit=0
 `);
 assert.ok(w4.some((w) => w.kind === 'deliverable-unverified'), 'deliverable never touched by any check flagged');
@@ -51,8 +53,8 @@ console.log('✓ preflight coverage: no-runtime-ac / judged-without-deliverable 
 // 取数脆弱性:数值规格无 metric 正则 → 预检黄牌
 const w5 = preflightChecks(`objective: x
 deliverable: d.txt
-AC-1 | 多数字输出 | check: \`cat counts.txt\` | expected: >=30
-AC-2 | 健康 | check: \`cat counts.txt\` | metric: \`clean=(\\d+)\` | expected: >=30
+AC-1 | 多数字输出 | check: \`${showFile('counts.txt')}\` | expected: >=30
+AC-2 | 健康 | check: \`${showFile('counts.txt')}\` | metric: \`clean=(\\d+)\` | expected: >=30
 AC-3 | 运行时 | check: \`node run.mjs\` | expected: exit=0
 `);
 assert.ok(w5.some((w) => w.kind === 'numeric-without-metric' && w.id === 'AC-1'), 'numeric expected without metric regex flagged');
@@ -63,14 +65,14 @@ assert.ok(w6.some((w) => w.kind === 'ac-line-unparsed'), 'unparseable AC line fl
 console.log('✓ preflight: ac-line-unparsed (silent drop surfaced)');
 
 // ── bash 驱动门控 CLI(恢复会话的循环兜底入口)──────────────────────────
-const root = fs.mkdtempSync('/tmp/gate-cli-');
+const root = mkdtemp('gate-cli-');
 fs.writeFileSync(path.join(root, 'a.txt'), 'x\n');
 fs.mkdirSync(path.join(root, '.goal-gate'));
 fs.writeFileSync(path.join(root, '.goal-gate', 'goal.md'), `objective: CLI 驱动
-AC-1 | 过 | check: \`test -f a.txt\` | expected: exit=0
-AC-2 | 不过 | check: \`test -f NOPE\` | expected: exit=0
+AC-1 | 过 | check: \`${fileExists('a.txt')}\` | expected: exit=0
+AC-2 | 不过 | check: \`${fileExists('NOPE')}\` | expected: exit=0
 `);
-const cli = path.join(path.dirname(new URL(import.meta.url).pathname), '..', 'bin', 'gate.mjs');
+const cli = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'gate.mjs');
 const run = (args) => spawnSync(process.execPath, [cli, ...args, '--cwd', root], { encoding: 'utf8' });
 
 const pf = run(['preflight']);
@@ -97,7 +99,7 @@ assert.equal(st.history.length, 2);
 console.log('✓ gate.mjs CLI: preflight / check(记账+failedActions+neverFailed) / status');
 
 // ── 度量纪律:基线不许被失败观测拉低 / 契约盖戳隔离 ───────────────────────
-const root2 = fs.mkdtempSync('/tmp/ledger-discipline-');
+const root2 = mkdtemp('ledger-discipline-');
 const mk = (over = {}) => ({ falseCompletes: 0, digests: {}, baselines: {}, bestScore: null, ...over });
 
 // 1) 失败观测不推进基线;通过才推进;首次观测建档
@@ -117,7 +119,7 @@ assert.equal(md.bestScore, 1, 'bestScore (max score) persists across contract ed
 console.log('✓ metric continuity: contract edits keep history');
 
 // 3) 轮次按实验(loop)计;neverFailed 按契约盖戳隔离
-const root3 = fs.mkdtempSync('/tmp/ledger-rounds-');
+const root3 = mkdtemp('ledger-rounds-');
 fs.mkdirSync(path.join(root3, '.goal-gate'));
 fs.writeFileSync(path.join(root3, '.goal-gate', 'loop.json'), JSON.stringify({ createdAt: 'T1', maxRounds: 1 }));
 let st3 = mk();
@@ -135,7 +137,7 @@ assert.deepEqual(neverFailedAcs(h3, [{ id: 'AC-1' }, { id: 'AC-2' }], 2, 'S2'), 
 console.log('✓ loop-scoped rounds + stamp-scoped neverFailed');
 
 // ── 缺陷 #14:state-error(契约畸形/零评估)记审计行、不烧轮 ───────────────
-const root4 = fs.mkdtempSync('/tmp/ledger-stateerr-');
+const root4 = mkdtemp('ledger-stateerr-');
 fs.mkdirSync(path.join(root4, '.goal-gate'));
 fs.writeFileSync(path.join(root4, '.goal-gate', 'loop.json'), JSON.stringify({ createdAt: 'T1', maxRounds: 2 }));
 const st4 = mk();
@@ -185,8 +187,8 @@ console.log('✓ duplicateEvalNote: same-conclusion peek named, changed evaluati
 // ── judged 纪律前置化:预检就该说,不等烧一轮才哑巴(缺陷 #13)─────────────
 const w7 = preflightChecks(`objective: x
 deliverable: d.html
-AC-1 | 评审 | check: \`echo x\` | expected: judged
-AC-2 | 评审有判官 | check: \`echo x\` | probe: \`node judge.mjs\` | expected: judged
+AC-1 | 评审 | check: \`${echo('x')}\` | expected: judged
+AC-2 | 评审有判官 | check: \`${echo('x')}\` | probe: \`node judge.mjs\` | expected: judged
 AC-3 | 运行时 | check: \`node d.html\` | expected: exit=0
 `);
 assert.ok(w7.some((w) => w.kind === 'judged-judge-missing' && w.id === 'AC-1'), 'judged without probe flagged upfront');

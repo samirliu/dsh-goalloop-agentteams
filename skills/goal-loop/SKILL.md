@@ -31,7 +31,9 @@ parallel or solo; judging has one mode. **The gate decides completion; you do no
    `.goal-gate/goal.md` and `.goal-gate/loop.json`, returns `created`,
    `contractPath`, `loopPath`, `objective`, `maxRounds`, `tasks`, `protocol`,
    `preflight` and (with `dispatch:true`) `dispatch`; each `acs` becomes one AC
-   with the fail-closed `test -f TODO-REPLACE-ME` check. `goal_gate_init({})`
+   with the fail-closed placeholder check (`test -f TODO-REPLACE-ME`; under a
+   Windows `cmd.exe` gate write `if exist TODO-REPLACE-ME (exit 0) else (exit 1)`,
+   or set `shell` / `GOAL_GATE_SHELL` to a POSIX shell). `goal_gate_init({})`
    writes the skeleton only; `protocol` is the run checklist.
 2. Shape the ACs; load **goal-loop-contract** when criteria are fuzzy, then **goal-loop-grill** to attack the eval/metric, the
    objective needs optimizing, or a judged AC is likely. One AC per line,

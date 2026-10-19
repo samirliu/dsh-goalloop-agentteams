@@ -3,22 +3,26 @@ import assert from 'node:assert/strict';
 import { runGate, parseContract, contractStamp, treeDigest, falseCompleteRule, judgeExpected, extractMetric, metricKey, CONTRACT_TEMPLATE } from '../lib/core.js';
 import fs from 'node:fs';
 import path from 'node:path';
+import {
+  mkdtemp, ok, echo, metric, stderrThenFail, fileExists, fileNotEmpty, lineCount,
+  writeFile, sleep, missingCommand, sequence,
+} from './fixtures/shell.mjs';
 
-const dir = fs.mkdtempSync('/tmp/goal-gate-smoke-');
+const dir = mkdtemp('goal-gate-smoke-');
 fs.writeFileSync(path.join(dir, 'a.txt'), 'hello\n');
 
 const contract = `objective: 产出一份带自检的研究包
-AC-1 | a.txt 存在且非空 | check: \`test -s a.txt\` | expected: exit=0
-AC-2 | 行数 >= 1 | check: \`wc -l < a.txt\` | expected: >=1
-AC-3 | 探针可信 | check: \`test -d .\` | probe: \`test -d .\` | expected: exit=0
-AC-4 | 这条会失败 | check: \`test -f NOPE\` | expected: exit=0
+AC-1 | a.txt 存在且非空 | check: \`${fileNotEmpty('a.txt')}\` | expected: exit=0
+AC-2 | 行数 >= 1 | check: \`${lineCount('a.txt')}\` | expected: >=1
+AC-3 | 探针可信 | check: \`${ok()}\` | probe: \`${ok()}\` | expected: exit=0
+AC-4 | 这条会失败 | check: \`${fileExists('NOPE')}\` | expected: exit=0
 `;
 
 const parsed = parseContract(contract);
 assert.equal(parsed.acs.length, 4, 'should parse 4 ACs');
 assert.equal(parsed.objective, '产出一份带自检的研究包');
 assert.ok(contractStamp(contract).length === 8, 'stamp is 8 chars');
-assert.equal(parseContract('objective: x\nexit: goal-only\nAC-1 | y | check: `true` | expected: exit=0').exitPolicy, 'goal-only', 'exit policy parsed');
+assert.equal(parseContract(`objective: x\nexit: goal-only\nAC-1 | y | check: \`${ok()}\` | expected: exit=0`).exitPolicy, 'goal-only', 'exit policy parsed');
 console.log('✓ parse: 4 ACs, objective parsed, stamp =', contractStamp(contract));
 
 // 门控：AC-4 必然失败 → NO-GO
@@ -74,7 +78,11 @@ assert.equal(judgeExpected('maximize', { exitCode: 0, stdout: '105\n' }, { prev:
 assert.equal(judgeExpected('maximize', { exitCode: 0, stdout: '115\n' }, { prev: 100, baseline: 'delta', tolerance: 0.08 }), 'passed', 'delta: 超出噪声带(+15%)算真改善');
 console.log('✓ tolerance: abs noise band / abs real regression / delta noise / delta real improvement');
 // delta 饱和诊断:指标封顶后原地踏步必须给出可操作提示
-const sat = runGate('objective: sat\nAC-1 | 封顶指标 | check: `echo 1` | metric: `([0-9.]+)` | baseline: delta | expected: maximize\nAC-2 | ok | check: `test -d .` | expected: exit=0\nAC-3 | ok | check: `test -d .` | expected: exit=0', { cwd: dir, baselines: { [metricKey(parseContract('objective: z\nAC-1 | x | check: `echo 1` | metric: `([0-9.]+)` | baseline: delta | expected: maximize\nAC-2 | y | check: `t` | expected: exit=0\nAC-3 | y | check: `t` | expected: exit=0').acs[0])]: 1 } });
+const satContract = `objective: sat
+AC-1 | 封顶指标 | check: \`${echo('1')}\` | metric: \`([0-9.]+)\` | baseline: delta | expected: maximize
+AC-2 | ok | check: \`${ok()}\` | expected: exit=0
+AC-3 | ok | check: \`${ok()}\` | expected: exit=0`;
+const sat = runGate(satContract, { cwd: dir, baselines: { [metricKey(parseContract(satContract).acs[0])]: 1 } });
 assert.equal(sat.results[0].status, 'failed', 'saturated delta -> failed');
 assert.match(sat.results[0].why ?? '', /saturated/, 'saturation diagnosed with actionable hint');
 console.log('✓ delta-saturation: diagnosed, not silent');
@@ -88,7 +96,7 @@ console.log('✓ judgeExpected: judged via deterministic judge (probe) covered')
 
 // runGate 基线闭环：首轮即通过并建立水位（goal-loop numeric 语义），次轮按 delta 判定
 const metricContract = `objective: 指标闭环
-AC-1 | 行数要改善 | check: \`wc -l < a.txt\` | metric: \`\\s*(\\d+)\` | baseline: delta | expected: maximize
+AC-1 | 行数要改善 | check: \`${lineCount('a.txt')}\` | metric: \`\\s*(\\d+)\` | baseline: delta | expected: maximize
 `;
 const mKey = metricKey(parseContract(metricContract).acs[0]);
 const r1 = runGate(metricContract, { cwd: dir });
@@ -107,10 +115,10 @@ console.log('✓ runGate: baseline cycle (unverifiable -> failed -> passed), sco
 
 // judged 行端到端：probe 即判官
 const judgedContract = `objective: judged 闭环
-AC-1 | 判官说行 | check: \`echo evidence\` | probe: \`test -f a.txt\` | expected: judged
-AC-2 | 判官说不行 | check: \`echo evidence\` | probe: \`test -f NOPE\` | expected: judged
-AC-3 | 无判官 | check: \`echo x\` | expected: judged
-AC-4 | 判官缺失 | check: \`echo evidence\` | probe: \`definitely-missing-cmd-xyz\` | expected: judged
+AC-1 | 判官说行 | check: \`${echo('evidence')}\` | probe: \`${fileExists('a.txt')}\` | expected: judged
+AC-2 | 判官说不行 | check: \`${echo('evidence')}\` | probe: \`${fileExists('NOPE')}\` | expected: judged
+AC-3 | 无判官 | check: \`${echo('x')}\` | expected: judged
+AC-4 | 判官缺失 | check: \`${echo('evidence')}\` | probe: \`${missingCommand()}\` | expected: judged
 `;
 const j = runGate(judgedContract, { cwd: dir });
 const byId = Object.fromEntries(j.results.map(r => [r.id, r.status]));
@@ -131,7 +139,7 @@ const evFile = path.join(dir, 'ev.txt');
 fs.writeFileSync(evFile, 'evidence body\n');
 const goodDigest = createHash('sha256').update(fs.readFileSync(evFile)).digest('hex');
 const evContract = (digest) => `objective: 证据绑定
-AC-1 | 评审 | check: \`echo artifact: ev.txt; echo digest: sha256:${digest}\` | probe: \`test -f ev.txt\` | expected: judged
+AC-1 | 评审 | check: \`${sequence(echo('artifact: ev.txt'), echo(`digest: sha256:${digest}`))}\` | probe: \`${fileExists('ev.txt')}\` | expected: judged
 `;
 const ev1 = runGate(evContract(goodDigest), { cwd: dir });
 assert.equal(ev1.results[0].status, 'passed', 'matching digest keeps the verdict');
@@ -139,17 +147,17 @@ const ev2 = runGate(evContract('0'.repeat(64)), { cwd: dir });
 assert.equal(ev2.results[0].status, 'broken', 'stale/mismatched evidence digest voids the verdict (BROKEN)');
 assert.match(ev2.results[0].why ?? '', /stale/, 'stale digest says why (defect #13: 哑巴作废已成历史)');
 const ev3 = runGate(`objective: 证据绑定
-AC-1 | 评审 | check: \`echo verdict ok\` | probe: \`test -f ev.txt\` | expected: judged
+AC-1 | 评审 | check: \`${echo('verdict ok')}\` | probe: \`${fileExists('ev.txt')}\` | expected: judged
 `, { cwd: dir });
 assert.equal(ev3.results[0].status, 'broken', 'verdict without evidence binding is BROKEN (mandatory discipline)');
 assert.match(ev3.results[0].why ?? '', /artifact: /, 'unbound verdict states what the conclusion must contain');
-const parsed2 = parseContract('objective: x\ndeliverable: dist/app.html\nAC-1 | y | check: `true` | expected: exit=0');
+const parsed2 = parseContract(`objective: x\ndeliverable: dist/app.html\nAC-1 | y | check: \`${ok()}\` | expected: exit=0`);
 assert.equal(parsed2.deliverable, 'dist/app.html', 'deliverable declaration parsed');
 console.log('✓ evidence binding: digest match / mismatch voided / back-compat / deliverable parsed');
 
 // judged 质量分进指标管道:score 行被提取、归一,可配 delta 逐轮逼优
 const qs = `objective: 质量分
-AC-1 | 质量评审 | check: \`echo 'VERDICT: PASS'; echo 'score: 7'; echo 'artifact: ev.txt'; echo 'digest: sha256:${goodDigest}'\` | probe: \`true\` | expected: judged
+AC-1 | 质量评审 | check: \`${sequence(echo('VERDICT: PASS'), echo('score: 7'), echo('artifact: ev.txt'), echo(`digest: sha256:${goodDigest}`))}\` | probe: \`${ok()}\` | expected: judged
 `;
 const q1 = runGate(qs, { cwd: dir });
 const qKey = metricKey(parseContract(qs).acs[0]);
@@ -159,17 +167,17 @@ assert.equal(q1.results[0].value, 0.7, 'score surfaces as the AC value');
 console.log('✓ judged quality score enters the metric pipeline (delta-able)');
 
 // per-AC timeout:短超时击杀慢检查;放宽后放行(30s 缺省不可配的缺陷回归)
-const tSlow = 'AC-1 | 慢检查 | check: `sleep 2` | timeout: 1 | expected: exit=0';
+const tSlow = `AC-1 | 慢检查 | check: \`${sleep(2)}\` | timeout: 1 | expected: exit=0`;
 const t1 = runGate(`objective: timeout
 ${tSlow}
-AC-2 | 快检查 | check: \`test -d .\` | expected: exit=0
-AC-3 | 快检查 | check: \`test -d .\` | expected: exit=0`, { cwd: dir });
+AC-2 | 快检查 | check: \`${ok()}\` | expected: exit=0
+AC-3 | 快检查 | check: \`${ok()}\` | expected: exit=0`, { cwd: dir });
 assert.equal(t1.results[0].status, 'broken', 'timeout:1 kills a 2s check -> BROKEN');
-const tOk = 'AC-1 | 慢检查 | check: `sleep 2` | timeout: 5 | expected: exit=0';
+const tOk = `AC-1 | 慢检查 | check: \`${sleep(2)}\` | timeout: 5 | expected: exit=0`;
 const t2 = runGate(`objective: timeout
 ${tOk}
-AC-2 | 快检查 | check: \`test -d .\` | expected: exit=0
-AC-3 | 快检查 | check: \`test -d .\` | expected: exit=0`, { cwd: dir });
+AC-2 | 快检查 | check: \`${ok()}\` | expected: exit=0
+AC-3 | 快检查 | check: \`${ok()}\` | expected: exit=0`, { cwd: dir });
 assert.equal(t2.results[0].status, 'passed', 'timeout:5 lets a 2s check pass');
 assert.equal(parseContract('objective: x\nAC-1 | y | check: `z` | timeout: 45 | expected: exit=0').acs[0].timeout, 45, 'timeout parsed');
 console.log('✓ per-AC timeout: kills slow check / releases with headroom / parsed');
@@ -193,21 +201,28 @@ assert.notEqual(d1, d2, 'digest changes when file content changes');
 console.log('✓ treeDigest: changes on file edit (R7 invalidation works)');
 
 // 无 objective / 无 AC → state-error
-assert.equal(runGate('AC-1 | x | check: `true` | expected: exit=0', { cwd: dir }).code, 'state-error');
+assert.equal(runGate(`AC-1 | x | check: \`${ok()}\` | expected: exit=0`, { cwd: dir }).code, 'state-error');
 assert.equal(runGate('objective: x', { cwd: dir }).code, 'state-error');
 console.log('✓ runGate: missing objective/AC -> state-error');
-const unp = runGate('objective: x\nAC-1 | ok | check: `test -d .` | expected: exit=0\nAC-2 | bad | check: `echo `nested`` | expected: exit=0\nAC-3 | ok | check: `test -d .` | expected: exit=0\nAC-4 | ok | check: `test -d .` | expected: exit=0', { cwd: dir });
+const unp = runGate(`objective: x
+AC-1 | ok | check: \`${ok()}\` | expected: exit=0
+AC-2 | bad | check: \`echo \`nested\`\` | expected: exit=0
+AC-3 | ok | check: \`${ok()}\` | expected: exit=0
+AC-4 | ok | check: \`${ok()}\` | expected: exit=0`, { cwd: dir });
 assert.equal(unp.code, 'state-error', 'unparseable AC line -> refuse to evaluate (fail-closed)');
 assert.match(unp.reason, /AC-2/, 'reason names the offending line');
 console.log('✓ runGate: unparsed AC line -> state-error (silent drop is forbidden)');
-const diag = runGate('objective: diag\nAC-1 | 报错到 stderr | check: `echo reason-on-stderr >&2; exit 1` | expected: exit=0\nAC-2 | ok | check: `test -d .` | expected: exit=0\nAC-3 | ok | check: `test -d .` | expected: exit=0', { cwd: dir });
+const diag = runGate(`objective: diag
+AC-1 | 报错到 stderr | check: \`${stderrThenFail('reason-on-stderr')}\` | expected: exit=0
+AC-2 | ok | check: \`${ok()}\` | expected: exit=0
+AC-3 | ok | check: \`${ok()}\` | expected: exit=0`, { cwd: dir });
 assert.match(diag.results[0].stderr ?? '', /reason-on-stderr/, 'failure reason on stderr is captured in results');
 assert.equal(diag.results[0].status, 'failed');
 console.log('✓ runGate: stderr diagnostics captured (fail-loud)');
 
 // 全绿 → GO
 const green = `objective: ok
-AC-1 | pass | check: \`test -d .\` | expected: exit=0
+AC-1 | pass | check: \`${ok()}\` | expected: exit=0
 `;
 const gr = runGate(green, { cwd: dir });
 assert.equal(gr.rc, 0);
@@ -217,9 +232,9 @@ console.log('✓ runGate: all-pass -> GO');
 
 // ── 新语义:broken 是决定性的,不许被 unverifiable ≤1/3 的 GO 放行 ──────────
 const hole = runGate(`objective: 3 AC hole
-AC-1 | floor | check: \`test -d .\` | expected: exit=0
-AC-2 | floor | check: \`test -d .\` | expected: exit=0
-AC-3 | broken instrument | check: \`definitely-missing-cmd-xyz\` | expected: exit=0
+AC-1 | floor | check: \`${ok()}\` | expected: exit=0
+AC-2 | floor | check: \`${ok()}\` | expected: exit=0
+AC-3 | broken instrument | check: \`${missingCommand()}\` | expected: exit=0
 `, { cwd: dir });
 assert.equal(hole.rc, 2, 'BROKEN row => NO-GO (not GO with <=1/3 unverifiable)');
 assert.equal(hole.code, 'broken');
@@ -228,12 +243,18 @@ assert.match(hole.reason, /AC-3/, 'BROKEN reason names the AC');
 console.log('✓ broken-vs-unverifiable: missing instrument yields NO-GO (the old GO hole is closed)');
 
 // ── goal-loop 原生 `- AC-N` 行兼容 + 重复编号拒绝 + 摘要覆盖 dashed 行 ──────
-const dashed = 'objective: dashed\n- AC-1 | a | check: `test -d .` | expected: exit=0\n- AC-2 | b | check: `test -d .` | expected: exit=0\n';
+const dashed = `objective: dashed
+- AC-1 | a | check: \`${ok()}\` | expected: exit=0
+- AC-2 | b | check: \`${ok()}\` | expected: exit=0
+`;
 assert.equal(parseContract(dashed).acs.length, 2, 'dashed AC lines parse');
 const dashG = runGate(dashed, { cwd: dir });
 assert.equal(dashG.rc, 0, 'dashed contract can GO');
 assert.equal(dashG.results.length, 2, 'no silent AC loss on dashed lines');
-const dup = runGate('objective: dup\nAC-1 | a | check: `true` | expected: exit=0\nAC-1 | b | check: `true` | expected: exit=0\n', { cwd: dir });
+const dup = runGate(`objective: dup
+AC-1 | a | check: \`${ok()}\` | expected: exit=0
+AC-1 | b | check: \`${ok()}\` | expected: exit=0
+`, { cwd: dir });
 assert.equal(dup.code, 'state-error', 'duplicate AC ids refused');
 assert.match(dup.reason, /duplicate/);
 const s1 = contractStamp(dashed);
@@ -248,24 +269,25 @@ assert.equal(judgeExpected('minimize', { exitCode: 0, stdout: '12\n' }, { prev: 
 assert.equal(judgeExpected('!=5', { exitCode: 0, stdout: '6\n' }), 'passed', '!= spec supported');
 assert.equal(judgeExpected('!=5', { exitCode: 0, stdout: '5\n' }), 'failed', '!= catches the forbidden value');
 const sdContract = `objective: sd
-AC-1 | noisy | check: \`echo 'm=95 sd=5'\` | metric: \`m=([0-9.]+)\` | baseline: abs | tolerance: 0.01 | sd: \`sd=([0-9.]+)\` | expected: maximize`;
+AC-1 | noisy | check: \`${metric('m=95 sd=5')}\` | metric: \`m=([0-9.]+)\` | baseline: abs | tolerance: 0.01 | sd: \`sd=([0-9.]+)\` | expected: maximize`;
 const sdKey = metricKey(parseContract(sdContract).acs[0]);
 const sdG = runGate(sdContract, { cwd: dir, baselines: { [sdKey]: 100 } });
 assert.equal(sdG.results[0].status, 'passed', 'sd widens the noise band: 95 within 2*5/100 of 100');
 assert.equal(sdG.results[0].spread, 5, 'spread surfaces in the result');
 const sdMiss = runGate(`objective: sd miss
-AC-1 | noisy | check: \`echo 'm=95'\` | metric: \`m=([0-9.]+)\` | sd: \`sd=([0-9.]+)\` | expected: maximize`, { cwd: dir, baselines: { [sdKey]: 100 } });
+AC-1 | noisy | check: \`${metric('m=95')}\` | metric: \`m=([0-9.]+)\` | sd: \`sd=([0-9.]+)\` | expected: maximize`, { cwd: dir, baselines: { [sdKey]: 100 } });
 assert.equal(sdMiss.results[0].status, 'broken', 'declared-but-unmatched spread is BROKEN');
 console.log('✓ minimize / != / sd noise band / spread-miss BROKEN');
 
 // ── digest: 同尺寸内容改动必须被发现;检查期间改树 -> NO-GO ─────────────────
-const dgDir = fs.mkdtempSync('/tmp/goal-gate-digest-');
+const dgDir = mkdtemp('goal-gate-digest-');
 fs.writeFileSync(path.join(dgDir, 'x.txt'), 'aaaa');
 const dg1 = treeDigest(dgDir);
 fs.writeFileSync(path.join(dgDir, 'x.txt'), 'bbbb');
 const dg2 = treeDigest(dgDir);
 assert.notEqual(dg1, dg2, 'same-size content edit changes the digest (no path+size blind spot)');
-const mutate = runGate('objective: mutate\nAC-1 | writes tree | check: \`echo x > newfile.txt; true\` | expected: exit=0', { cwd: dgDir });
+const mutate = runGate(`objective: mutate
+AC-1 | writes tree | check: \`${writeFile('newfile.txt', 'x')}\` | expected: exit=0`, { cwd: dgDir });
 assert.equal(mutate.code, 'check-mutated-tree', 'checks that mutate the tree are refused as evaluation');
 assert.equal(mutate.treeMoved, true);
 console.log('✓ digest: content hashing + check-mutated-tree guard');

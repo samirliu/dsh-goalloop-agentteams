@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { parseContract, validateTeamMeta, runGate, contractStamp } from '../lib/core.js';
 import { acquireLedgerLock, withLedgerLock, measureBaselines, readState, readLoop } from '../lib/ledger.js';
+import { mkdtemp, ok, echo, metric, fileExists, all, nodeNoop } from './fixtures/shell.mjs';
 
 const mod = await import('../lib/index.js');
 
@@ -64,20 +65,20 @@ function fakeTeam({ lead = true } = {}) {
 {
   const text = `objective: team contract
 deliverable: out.txt
-AC-1 | foundation | check: \`test -f out.txt\` | scope: src/core | expected: exit=0
-AC-2 | layer | check: \`test -f out.txt\` | scope: src/ui | depends: AC-1 | expected: exit=0
+AC-1 | foundation | check: \`${fileExists('out.txt')}\` | scope: src/core | expected: exit=0
+AC-2 | layer | check: \`${fileExists('out.txt')}\` | scope: src/ui | depends: AC-1 | expected: exit=0
 `;
   const parsed = parseContract(text);
   assert.deepEqual(parsed.acs[0].scope, ['src/core']);
   assert.deepEqual(parsed.acs[1].depends, ['AC-1']);
   assert.equal(validateTeamMeta(parsed.acs), null);
-  const cyclic = parseContract(`objective: c\nAC-1 | a | check: \`true\` | depends: AC-2 | expected: exit=0\nAC-2 | b | check: \`true\` | depends: AC-1 | expected: exit=0\n`);
+  const cyclic = parseContract(`objective: c\nAC-1 | a | check: \`${ok()}\` | depends: AC-2 | expected: exit=0\nAC-2 | b | check: \`${ok()}\` | depends: AC-1 | expected: exit=0\n`);
   assert.match(validateTeamMeta(cyclic.acs) ?? '', /cycle/);
-  const unknown = parseContract(`objective: u\nAC-1 | a | check: \`true\` | depends: AC-9 | expected: exit=0\n`);
+  const unknown = parseContract(`objective: u\nAC-1 | a | check: \`${ok()}\` | depends: AC-9 | expected: exit=0\n`);
   assert.match(validateTeamMeta(unknown.acs) ?? '', /unknown AC/);
-  const work = fs.mkdtempSync('/tmp/v08-meta-');
+  const work = mkdtemp('v08-meta-');
   fs.writeFileSync(path.join(work, 'out.txt'), 'x');
-  const bad = runGate('objective: bad\nAC-1 | a | check: `true` | depends: AC-2 | expected: exit=0\nAC-2 | b | check: `true` | depends: AC-1 | expected: exit=0\n', { cwd: work });
+  const bad = runGate(`objective: bad\nAC-1 | a | check: \`${ok()}\` | depends: AC-2 | expected: exit=0\nAC-2 | b | check: \`${ok()}\` | depends: AC-1 | expected: exit=0\n`, { cwd: work });
   assert.equal(bad.code, 'state-error', 'cyclic depends refuse the gate');
   console.log('✓ v0.8 grammar: scope:/depends: parsed; unknown/cyclic deps are state-error');
 }
@@ -86,13 +87,13 @@ AC-2 | layer | check: \`test -f out.txt\` | scope: src/ui | depends: AC-1 | expe
 {
   const reg = makeCtx();
   mod.apply(reg.ctx, {});
-  const work = fs.mkdtempSync('/tmp/v08-plan-');
+  const work = mkdtemp('v08-plan-');
   const exec = { agent: { member: true, session: { header: { cwd: work } } } };
   await call(reg, 'goal_loop_at', { objective: 'waves', acs: ['foundation', 'layer'] }, exec);
   const cp = path.join(work, '.goal-gate/goal.md');
   fs.writeFileSync(cp, `objective: waves
-AC-1 | foundation | check: \`test -d .\` | scope: src/core | expected: exit=0
-AC-2 | layer | check: \`test -d .\` | scope: src/ui | depends: AC-1 | expected: exit=0
+AC-1 | foundation | check: \`${ok()}\` | scope: src/core | expected: exit=0
+AC-2 | layer | check: \`${ok()}\` | scope: src/ui | depends: AC-1 | expected: exit=0
 `);
   const res = await call(reg, 'goal_loop_at', { objective: 'waves' }, exec);
   assert.deepEqual(res.plan.waves, [['AC-1'], ['AC-2']]);
@@ -105,7 +106,7 @@ AC-2 | layer | check: \`test -d .\` | scope: src/ui | depends: AC-1 | expected: 
   const team = fakeTeam();
   const reg = makeCtx(team);
   mod.apply(reg.ctx, {});
-  const work = fs.mkdtempSync('/tmp/v08-placeholder-');
+  const work = mkdtemp('v08-placeholder-');
   const exec = { agent: { member: true, session: { header: { cwd: work } } } };
   const res = await call(reg, 'goal_loop_at', { objective: 'placeholder', acs: ['one'], dispatch: true }, exec);
   assert.equal(res.dispatch.dispatched.length, 0, 'placeholder contract is not dispatched');
@@ -119,12 +120,12 @@ AC-2 | layer | check: \`test -d .\` | scope: src/ui | depends: AC-1 | expected: 
   const team = fakeTeam();
   const reg = makeCtx(team);
   mod.apply(reg.ctx, {});
-  const work = fs.mkdtempSync('/tmp/v08-dispatch-');
+  const work = mkdtemp('v08-dispatch-');
   const exec = { agent: { member: true, session: { header: { cwd: work } } } };
   fs.mkdirSync(path.join(work, '.goal-gate'));
   fs.writeFileSync(path.join(work, '.goal-gate/goal.md'), `objective: repair
-AC-1 | core | check: \`test -f NOPE1\` | scope: src/core | expected: exit=0
-AC-2 | ui | check: \`test -f NOPE2\` | scope: src/ui | depends: AC-1 | expected: exit=0
+AC-1 | core | check: \`${fileExists('NOPE1')}\` | scope: src/core | expected: exit=0
+AC-2 | ui | check: \`${fileExists('NOPE2')}\` | scope: src/ui | depends: AC-1 | expected: exit=0
 `);
   const first = await call(reg, 'goal_gate_dispatch', { assign: { 'AC-1': 'engineer' } }, exec);
   assert.equal(first.dispatched.length, 2, 'two repair tasks created');
@@ -144,10 +145,10 @@ AC-2 | ui | check: \`test -f NOPE2\` | scope: src/ui | depends: AC-1 | expected:
   team.tasks.push({ id: 'task-y', revision: 1, subject: '[goal-gate abc] AC-2: ui', status: 'pending', ready: true, blockedBy: [], writeScopes: [], writeScopeWarnings: [], description: 'y' });
   const reg = makeCtx(team);
   mod.apply(reg.ctx, {});
-  const work = fs.mkdtempSync('/tmp/v08-team-');
+  const work = mkdtemp('v08-team-');
   const exec = { agent: { member: true, session: { header: { cwd: work } } } };
   fs.mkdirSync(path.join(work, '.goal-gate'));
-  fs.writeFileSync(path.join(work, '.goal-gate/goal.md'), 'objective: team\nAC-1 | core | check: `test -f NOPE` | expected: exit=0\n');
+  fs.writeFileSync(path.join(work, '.goal-gate/goal.md'), `objective: team\nAC-1 | core | check: \`${fileExists('NOPE')}\` | expected: exit=0\n`);
   const status = await call(reg, 'goal_gate_status', {}, exec);
   assert.equal(status.team.role, 'lead');
   assert.equal(status.team.tasks.length, 2);
@@ -162,11 +163,11 @@ AC-2 | ui | check: \`test -f NOPE2\` | scope: src/ui | depends: AC-1 | expected:
 {
   const reg = makeCtx();
   mod.apply(reg.ctx, {});
-  const weakWork = fs.mkdtempSync('/tmp/v08-grill-weak-');
+  const weakWork = mkdtemp('v08-grill-weak-');
   const exec = { agent: { session: { header: { cwd: weakWork } } } };
   fs.mkdirSync(path.join(weakWork, '.goal-gate'));
   fs.writeFileSync(path.join(weakWork, '.goal-gate/goal.md'), `objective: make it good
-AC-1 | it works | check: \`echo ok\` | expected: exit=0
+AC-1 | it works | check: \`${echo('ok')}\` | expected: exit=0
 `);
   const weak = await call(reg, 'goal_gate_grill', {}, exec);
   assert.equal(weak.verdict, 'needs-work');
@@ -174,15 +175,15 @@ AC-1 | it works | check: \`echo ok\` | expected: exit=0
   assert.ok(weak.findings.some((f) => /deliverable/.test(f.issue)));
   assert.ok(weak.questions.length >= 2);
 
-  const strongWork = fs.mkdtempSync('/tmp/v08-grill-strong-');
+  const strongWork = mkdtemp('v08-grill-strong-');
   const exec2 = { agent: { session: { header: { cwd: strongWork } } } };
   fs.mkdirSync(path.join(strongWork, '.goal-gate'));
   fs.writeFileSync(path.join(strongWork, 'out.txt'), 'x\n');
   fs.writeFileSync(path.join(strongWork, '.goal-gate/goal.md'), `objective: build a parser
 deliverable: out.txt
-AC-1 | parser runs on the deliverable | check: \`test -f out.txt && /usr/bin/env node -e ''\` | expected: exit=0
-AC-2 | bad input is refused with code 1 | check: \`test -f NOPE\` | expected: exit=1
-AC-3 | throughput | check: \`printf 'm=100\\n'\` | metric: \`m=([0-9.]+)\` | baseline: abs | tolerance: 0.05 | probe: \`true\` | expected: maximize
+AC-1 | parser runs on the deliverable | check: \`${all(fileExists('out.txt'), nodeNoop())}\` | expected: exit=0
+AC-2 | bad input is refused with code 1 | check: \`${fileExists('NOPE')}\` | expected: exit=1
+AC-3 | throughput | check: \`${metric('m=100')}\` | metric: \`m=([0-9.]+)\` | baseline: abs | tolerance: 0.05 | probe: \`${ok()}\` | expected: maximize
 `);
   await call(reg, 'goal_gate_baseline', { samples: 2 }, exec2);
   const strong = await call(reg, 'goal_gate_grill', {}, exec2);
@@ -192,10 +193,10 @@ AC-3 | throughput | check: \`printf 'm=100\\n'\` | metric: \`m=([0-9.]+)\` | bas
 
 // ── 6. baseline + spread persistence + data-driven band ──────────────────
 {
-  const work = fs.mkdtempSync('/tmp/v08-baseline-');
+  const work = mkdtemp('v08-baseline-');
   fs.mkdirSync(path.join(work, '.goal-gate'));
   const contract = `objective: baseline
-AC-1 | metric | check: \`printf 'm=100 sd=4\\n'\` | metric: \`m=([0-9.]+)\` | baseline: abs | sd: \`sd=([0-9.]+)\` | expected: maximize
+AC-1 | metric | check: \`${metric('m=100 sd=4')}\` | metric: \`m=([0-9.]+)\` | baseline: abs | sd: \`sd=([0-9.]+)\` | expected: maximize
 `;
   fs.writeFileSync(path.join(work, '.goal-gate/goal.md'), contract);
   const res = measureBaselines(work, contract, { samples: 2 });
@@ -213,7 +214,7 @@ AC-1 | metric | check: \`printf 'm=100 sd=4\\n'\` | metric: \`m=([0-9.]+)\` | ba
 
 // ── 7. ledger lock serializes team operations ────────────────────────────
 {
-  const work = fs.mkdtempSync('/tmp/v08-lock-');
+  const work = mkdtemp('v08-lock-');
   fs.mkdirSync(path.join(work, '.goal-gate'));
   const release = acquireLedgerLock(work);
   assert.equal(typeof release, 'function');
@@ -230,11 +231,11 @@ AC-1 | metric | check: \`printf 'm=100 sd=4\\n'\` | metric: \`m=([0-9.]+)\` | ba
 {
   const reg = makeCtx();
   mod.apply(reg.ctx, {});
-  const work = fs.mkdtempSync('/tmp/v08-audit-');
+  const work = mkdtemp('v08-audit-');
   const exec = { agent: { session: { header: { cwd: work } } } };
   fs.mkdirSync(path.join(work, '.goal-gate'));
   fs.writeFileSync(path.join(work, '.goal-gate/goal.md'), `objective: audit
-AC-1 | metric | check: \`printf 'm=5\\n'\` | metric: \`m=([0-9.]+)\` | expected: maximize
+AC-1 | metric | check: \`${metric('m=5')}\` | metric: \`m=([0-9.]+)\` | expected: maximize
 `);
   const report = await call(reg, 'goal_gate_audit', {}, exec);
   assert.ok(report.warnings.some((w) => w.code === 'baseline-unestablished'), 'audit warns about missing baseline');
@@ -248,7 +249,7 @@ AC-1 | metric | check: \`printf 'm=5\\n'\` | metric: \`m=([0-9.]+)\` | expected:
   reg.ctx.tools.schemas = () => reg.tools.map((t) => ({ name: t.name, parameters: t.parameters }));
   reg.ctx.tools.register = (t) => { reg.tools.push(t); };
   mod.apply(reg.ctx, {});
-  const work = fs.mkdtempSync('/tmp/v08-doctor-');
+  const work = mkdtemp('v08-doctor-');
   const exec = { agent: { session: { header: { cwd: work } } } };
   const report = await call(reg, 'goal_gate_doctor', {}, exec);
   assert.equal(report.ok, true, JSON.stringify(report.notes));

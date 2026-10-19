@@ -122,6 +122,22 @@ Judged with binding and calibration:
 AC-3 | diagram is legible | check: `/abs/node verify/render.mjs` | probe: `/abs/node verify/judge.mjs` | calib: good=fixtures/good.svg bad=fixtures/bad.svg | expected: judged
 ```
 
+## Platforms: the gate owns the shell
+
+`check:`/`probe:` are executed by the gate, not by you:
+
+| Platform | Default | `test -f x` equivalent |
+|---|---|---|
+| Linux / macOS | `/bin/sh -c` | `test -f x` |
+| Windows | `%COMSPEC%` → `cmd.exe /d /s /c` | `if exist x (exit 0) else (exit 1)` |
+| override | `config.shell` / `GOAL_GATE_SHELL` / `bin/gate.mjs --shell` | point it at `sh.exe`/`bash.exe`/`pwsh.exe` |
+
+Every gate result carries a `shell` field, and `preflight` reports
+`posix-syntax-on-cmd` when a check looks POSIX while the Windows gate would run
+`cmd.exe` — treat that warning as a defect in the contract, not in the artifact:
+a command that does not exist makes every AC `failed`/`broken`, and two caught
+false completes latch `BLOCKED`.
+
 `render.mjs` writes `out/verdict.txt` with `artifact:`/`digest:` and calib grades; `judge.mjs` exits with the verdict.
 
 ## Repairing a failing contract
