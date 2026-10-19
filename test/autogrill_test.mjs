@@ -31,7 +31,7 @@ function makeCtx({ team } = {}) {
 const call = async (tools, name, args, exec) => (await tools.find((t) => t.name === name).execute(args ?? {}, exec));
 const execFor = (root) => ({ agent: { session: { header: { cwd: root } } }, signal: new AbortController().signal });
 let blocked = 0;
-const attacks = 19;
+const attacks = 22;
 function pass(name, ok, detail) {
   if (ok) blocked++;
   console.log(`${ok ? '🛡️' : '💀'} ${name} — ${detail}`);
@@ -76,8 +76,23 @@ const writeContract = (root, text) => fs.writeFileSync(path.join(root, '.goal-ga
   pass('--no-grill disables the command-side grill', r2.kind === 'success' && /grill: skipped \(--no-grill\)/.test(r2.text), r2.text.split('\n')[1]?.trim() ?? '');
   const r3 = await cmd.handler({ rawInput: 'off via flag --grill=false', agent: { session: { header: { cwd: mkdtemp('autogrill-flag-') } } } });
   pass('--grill=false disables the command-side grill', r3.kind === 'success' && /grill: skipped/.test(r3.text), 'alternate spelling also supported');
-  const r4 = await cmd.handler({ rawInput: 'keep this --grilling', agent: { session: { header: { cwd: mkdtemp('autogrill-flag2-') } } } });
+  const root4 = mkdtemp('autogrill-flag2-');
+  const root5 = mkdtemp('autogrill-flag3-');
+  for (const r of [root4, root5]) fs.mkdirSync(path.join(r, '.goal-gate'), { recursive: true });
+  const cleanupAll = () => {
+    for (const r of [root4, root5]) {
+      fs.rmSync(r, { recursive: true, force: true });
+      const key = path.join(os.homedir(), '.dsh', 'goal-gate', `${createHash('sha1').update(path.resolve(r)).digest('hex').slice(0, 24)}.key`);
+      try { fs.rmSync(key, { force: true }); } catch { /* 密钥清理尽力而为 */ }
+    }
+  };
+  const r4 = await cmd.handler({ rawInput: 'keep this --grilling', agent: { session: { header: { cwd: root4 } } } });
   pass('--grilling is not a magic switch', r4.kind === 'success' && /grill: (ready|needs-work)/.test(r4.text), 'only the documented escape hatch disables the grill');
+  const r5 = await cmd.handler({ rawInput: 'optimize the --grilling parser for --weird tokens', agent: { session: { header: { cwd: root5 } } } });
+  const objLine5 = fs.readFileSync(path.join(root5, '.goal-gate/goal.md'), 'utf8').split('\n')[0];
+  pass('unknown --flags stay in the objective', objLine5 === 'objective: optimize the --grilling parser for --weird tokens', `contract says ${JSON.stringify(objLine5)}`);
+  pass('grill still runs for an objective with flags', /grill: (ready|needs-work)/.test(r5.text), 'the whole point of the escape hatch being narrow');
+  cleanupAll();
 }
 
 // 3) 命令形态默认开：grill 结论必须出现在人读的第一屏
