@@ -53,7 +53,7 @@ state-error): `AC-N | <statement> | check: <cmd> | [probe: <cmd>] | [metric:
 |---|---|
 | correctness | parse/lint exits 0; happy path exits 0; a known-bad input exits with the exact N; byte diff against a stored file; the named suite |
 | behavioral | scripted replay with observable assertions at fixed steps; end state re-checked; transcript/evidence retained |
-| quantitative | one command, N fixed repeats, internal aggregation (mean/p50 named), single number on the last stdout line; `probe:` + `metric:` + `tolerance:`/`sd:`; noise floor measured first; first run sets the water mark (PASS), `delta` from run 2 |
+| quantitative | one command, N fixed repeats, internal aggregation (mean/p50 named), single number on the last stdout line; `probe:` + `metric:` + `tolerance:`/`sd:`; noise floor measured first; first run only records the water mark (`unverifiable`, no free PASS), `delta` from run 2 |
 | perceptual | `judged`, with written rubric anchors or a fixed-point A/B against a reference; the check produces the evidence the judge reads; `calib:` good/bad |
 | data | shape first (head + counts); recompute one subtotal independently; null/duplicate recount; same input twice → byte-identical |
 | documents | read back the rendered file; required sections by name; cross-references resolve; length via the named counting command |
@@ -82,10 +82,16 @@ deliverable itself (read-only) or an evidence file there.
 
 - `check:` produces the evidence; `probe:` is the judge (0 PASS, non-zero FAIL).
 - The verdict carries `artifact: <path>` and `digest: sha256:<64hex>`; the gate
-  recomputes the hash. Unbound, stale, missing judge or failed `calib:` =
+  recomputes the hash and requires the artifact to resolve inside the evaluated
+  workspace. Unbound, stale, missing judge or failed `calib:` =
   **broken (decisive NO-GO)**.
-- `calib: good=<f> bad=<f>`: the judge must grade the good fixture PASS and the
-  bad fixture FAIL (`calib-good: PASS`, `calib-bad: FAIL`); otherwise broken.
+- `calib: good=<f> bad=<f>`: the `probe` must contain a `{file}` placeholder so
+  the gate can run the same judge against both fixtures — the good one must exit
+  0 and the bad one must exit non-zero. Self-reported `calib-good: PASS` /
+  `calib-bad: FAIL` lines are not trusted. Either fixture outside the workspace,
+  or a judge that passes the known-bad fixture = broken.
+- A `score:` printed by the judge feeds the metric pipeline; a `score:` printed
+  by the artifact under review is ignored.
 - Rubric before vibes: written dimensions, anchors per level, a threshold.
   `unverifiable` is only genuine inapplicability and stays soft (≤ 1/3).
 

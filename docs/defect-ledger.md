@@ -33,7 +33,7 @@
 | 24 | **成功返回全部失败(真实宿主)** | 0.6.x 的 output 只有 schema、没有 render;0.2.1-rc.2 的 defineTool 安装 wrapper 并在成功时调用 → 每次成功调用 `output.render failed: userRender is not a function`;deny 路径不渲染,所以"看起来在工作" | 每个工具声明共享 `renderJson`(JSON text block) | wiring:render 存在/可调用;真实 registry harness 全工具成功返回 |
 | 25 | **命令从未注册** | `ctx.inject(['commands'], c => c.register(...))` 的 c 是子 Context → 读 `c.register` 抛 "cannot get property";空 `input.hint:''` 又被 register 拒绝 | `c.commands.register(...)`;无参命令省略 `input`;followup 使用完整 UserMessage | wiring + 真实 commands fiber:5 个命令在 list 中 |
 | 26 | 输出 schema 越界 | 属性级 `required:true` 与 author-only `type:'json'` 不在受支持子集 → register 直接拒绝或成功调用校验失败 | 输出 schema 只用受支持子集;可空对象用 `oneOf:[object,null]` | wiring:递归 schema 断言;真实 harness |
-| 27 | 首轮水位判定 | goal-loop 的数值语义是首轮建立水位即 PASS;插件判 unverifiable,叠加 17 会稀释 GO | maximize/minimize 首轮 PASS 并写入基线;delta 从第二轮生效 | smoke:基线闭环 |
+| 27 | 首轮水位判定 | goal-loop 的数值语义是首轮建立水位即 PASS;插件判 unverifiable,叠加 17 会稀释 GO。**v0.10.0 复查推翻**:首轮免判本身就是漏洞——改一次 check 文本就换一个指标序列,每轮都能白拿 PASS | maximize/minimize 首轮 `unverifiable`(只建档、不给结论);水位靠 `goal_gate_baseline` 或上一轮建立,delta 从第二轮生效 | smoke:基线闭环;P0/P1:首轮不判 |
 | 28 | 目标面缺件 | 无 `minimize` / `!=` / `sd:` / `var:`,无法表达最小化目标与数据噪声 | 全部解析与判定;声明了 spread 却匹配不到 = broken;噪声带 `max(2*spread/|prev|, tolerance)` | smoke:minimize/!=/sd/spread-miss |
 | 29 | 循环身份漂移 | goal_loop_at 复用旧 loop.createdAt;目标变了却沿用旧契约/轮次/历史 | 目标不一致 → `objective-drift`;只有新建契约才换 loop 时钟 | v07:objective drift |
 | 30 | CLI 状态字段错 | `bin/gate.mjs status` 把 stamp 报成 AC 数量 | 改为真实 contractStamp;补齐 audit/stamp/reset/status | ledger:gate.mjs CLI;v07 |
@@ -57,9 +57,9 @@
 
 ## 质量演进
 
-- **证据保真**(v0.4.x):deliverable 声明 + 覆盖预检 + judged 评审强制证据摘要绑定(R7 for judgments)——区分"验了部分"与"验了本体"
-- **质量分**(v0.5.0):judged 结论带 score 进指标管道;`baseline: delta` 让质量逐轮必须改善;质量目标 AC 门槛
-- **度量纪律**(v0.3.1):基线只随通过推进(失败观测永不拉低);指标身份 = AC 编号 + check 哈希
+- **证据保真**(v0.4.x):deliverable 声明 + 覆盖预检 + judged 评审强制证据摘要绑定(R7 for judgments)——区分"验了部分"与"验了本体";v0.10.0 起证据必须落在被评估的工作区内
+- **质量分**(v0.5.0):judged 结论带 score 进指标管道;`baseline: delta` 让质量逐轮必须改善;质量目标 AC 门槛。v0.10.0 起分数只采信判读席(probe)的输出,不采信被评产物自述
+- **度量纪律**(v0.3.1):基线只随通过推进(失败观测永不拉低);指标身份 = AC 编号 + 语句哈希
 - **鲁棒性**(v0.3.0+):bash 可达的门控 CLI(binp/gate.mjs)、裸运行时/相对解释器预检、永真式点名
 - **接线**(v0.2.x):真实工具名接线、入口 name 契约、link: 安装的模块解析链
 - **时间与诚实性**(v0.6.2):门控自计时、最近评估时钟、loop-idle 检测、重评点名、错误不烧轮——墙钟进账本,不再靠口头
@@ -72,6 +72,7 @@
 - **团队编排**(v0.9.0):staff 预览/spawn、collect 就绪判定、judge 冷席评审、锁等待、horizon 防线
 - **复杂用例回归**(v0.9.1):多波交付、grill 修复、预算/阻塞/重置、CLI 并发、judged digest;claim-mode delta 与 grill 误报修复
 - **平台中立**(v0.9.2):解释器显式解析与上报(POSIX `/bin/sh` ↔ Windows `%COMSPEC%`,可 `config.shell`/`GOAL_GATE_SHELL`/`--shell` 覆盖),解释器缺失 fail-loud 并给修复名;`app.asar` 模块回退改 `pathToFileURL`(Windows ESM 不再丢真 `defineTool`);测试与 e2e 夹具平台中立,Windows 默认 shell 与 Git Bash 双模式全绿
+- **判定可信度加固**(v0.10.0):账本完整性(HMAC 签名,密钥在工作区外;篡改/删除判 state-error,绝不静默重建)、锁正确性(只读不取锁、pid 存活检测、token 校验释放、re-stat 回收、`unlock` 人工恢复)、指标身份锚语句、首轮不判定、判官分数与 calib 由门控自跑、证据工作区围栏、CLI 退出码按 rc 如实映射(4=state-error/5=busy)、工作区缺失 fail-closed、盖章默认需人批
 
 ## 运营发现(循环侧,非内核缺陷)
 

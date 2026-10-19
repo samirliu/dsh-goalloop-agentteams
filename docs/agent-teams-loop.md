@@ -68,7 +68,7 @@ Metrics are treated as instruments with noise, not as truths.
 | Metric rule | Implementation |
 |---|---|
 | One programmatic number | `metric:` captures one group; ANSI stripped; missing number = broken |
-| Direction is explicit | `maximize` / `minimize`; first run establishes the water mark and passes |
+| Direction is explicit | `maximize` / `minimize`; the first run only records the water mark (verdict `unverifiable`), it does not pass |
 | Improvement is explicit | `baseline: delta` (strict) vs `abs` (no regression) |
 | Noise is measured | `goal_gate_baseline` records mean + spread; `sd:`/`var:` read spread from output; band = `max(2*spread/|prev|, tolerance)` |
 | Completion is more than a number | a floor AC (`>=`) plus a judged horizon; judged evidence is digest-bound and calibrated |

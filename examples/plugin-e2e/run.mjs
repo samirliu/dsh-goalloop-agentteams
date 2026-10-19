@@ -121,7 +121,17 @@ await runCase('multi-wave delivery (staff → collect → gate → audit)', asyn
   writeFile(root, 'docs/README.md', '# converter\n\nTODO\n');
   writeFile(root, 'verify/good-doc.md', '# good documentation\n\nCLI, errors, examples.\n');
   writeFile(root, 'verify/bad-doc.md', '# bad\n');
-  writeFile(root, 'verify/judge-docs.mjs', 'process.exit(/VERDICT: PASS/.test(require_doc()) ? 0 : 1);\nfunction require_doc() { return "VERDICT: PASS"; }\n');
+  // 判读席:门控会把 `{file}` 换成待判文件的绝对路径——对真实产物和两个
+  // calib 夹具用的是同一把尺子,所以它必须真的按内容判。
+  writeFile(root, 'verify/judge-docs.mjs', `import fs from 'node:fs';
+const file = process.argv[2];
+let text = '';
+try { text = fs.readFileSync(file, 'utf8'); } catch { process.exit(2); }
+const lines = text.split('\\n').filter(Boolean);
+const good = /(usage|cli|errors?|examples?)/i.test(text) && lines.length >= 2;
+if (good) { console.log('score: 0.9'); process.exit(0); }
+process.exit(1);
+`);
 
   contract(root, [
     'objective: ship a CSV-to-JSONL converter with validation, tests, benchmark and docs',
@@ -131,7 +141,7 @@ await runCase('multi-wave delivery (staff → collect → gate → audit)', asyn
     `AC-2 | malformed row is refused with exit 2 | check: \`"${NODE}" dist/csv2jsonl.mjs fixtures/bad.csv\` | scope: dist | depends: AC-1 | expected: exit=2`,
     `AC-3 | unit suite passes | check: \`"${NODE}" tests/run.mjs\` | scope: tests | depends: AC-1 | expected: exit=0`,
     `AC-4 | throughput improves over the measured baseline | check: \`"${NODE}" bench/bench.mjs\` | probe: \`"${NODE}" --version\` | metric: \`rows_per_sec=([0-9.]+)\` | baseline: delta | tolerance: 0.8 | scope: bench | depends: AC-3 | expected: maximize`,
-    'AC-5 | docs are accurate and calibrated | check: `' + showFile('.goal-gate/evidence/docs-verdict.txt') + '` | probe: `' + fileContains('.goal-gate/evidence/docs-verdict.txt', 'VERDICT: PASS') + '` | calib: good=verify/good-doc.md bad=verify/bad-doc.md | scope: docs | depends: AC-3 | expected: judged',
+    'AC-5 | docs are accurate and calibrated | check: `' + showFile('.goal-gate/evidence/docs-verdict.txt') + '` | probe: `"' + NODE + '" verify/judge-docs.mjs {file}` | calib: good=verify/good-doc.md bad=verify/bad-doc.md | scope: docs | depends: AC-3 | expected: judged',
   ]);
 
   const start = await call(reg, 'goal_loop_at', { objective: 'ship a CSV-to-JSONL converter with validation, tests, benchmark and docs', maxRounds: 8 }, exec);
@@ -272,7 +282,7 @@ await runCase('budgets, contract-revision, BLOCKED and human reset', async () =>
   const second = await claim();
   assert.equal(second.info.code, 'blocked', 'two false completes block the gate');
 
-  const reset = reg.cmds.find((c) => c.name === 'goal-reset').handler({ rawInput: '--new-loop case-3', agent: exec.agent });
+  const reset = await reg.cmds.find((c) => c.name === 'goal-reset').handler({ rawInput: '--new-loop case-3', agent: exec.agent });
   assert.equal(reset.kind, 'success');
   const state = JSON.parse(fs.readFileSync(path.join(root, '.goal-gate/state.json'), 'utf8'));
   assert.equal(state.falseCompletes, 0);
@@ -308,6 +318,13 @@ await runCase('judged evidence: digest binding and calibration', async () => {
   writeFile(root, 'artifact.txt', 'v1\n');
   writeFile(root, 'good.txt', 'known good\n');
   writeFile(root, 'bad.txt', 'known bad\n');
+  // 判读席按内容判定:门控会把 `{file}` 换成 artifact 或 calib 夹具的绝对路径。
+  writeFile(root, 'judge.mjs', `import fs from 'node:fs';
+let text = '';
+try { text = fs.readFileSync(process.argv[2], 'utf8'); } catch { process.exit(2); }
+if (/known good/.test(text) || /^v\\d/m.test(text)) { console.log('score: 0.9'); process.exit(0); }
+process.exit(1);
+`);
   const verdict = path.join(root, '.goal-gate/evidence/verdict.txt');
   fs.mkdirSync(path.dirname(verdict), { recursive: true });
   const writeVerdict = (digest) => fs.writeFileSync(verdict, `VERDICT: PASS\nscore: 0.9\nartifact: artifact.txt\ndigest: sha256:${digest}\ncalib-good: PASS\ncalib-bad: FAIL\n`);
@@ -315,7 +332,7 @@ await runCase('judged evidence: digest binding and calibration', async () => {
   contract(root, [
     'objective: judged evidence',
     'deliverable: artifact.txt',
-    'AC-1 | quality is judged with bound evidence | check: `' + showFile('.goal-gate/evidence/verdict.txt') + '` | probe: `' + fileContains('.goal-gate/evidence/verdict.txt', 'VERDICT: PASS') + '` | calib: good=good.txt bad=bad.txt | expected: judged',
+    'AC-1 | quality is judged with bound evidence | check: `' + showFile('.goal-gate/evidence/verdict.txt') + '` | probe: `"' + NODE + '" judge.mjs {file}` | calib: good=good.txt bad=bad.txt | expected: judged',
   ]);
   const ok = await call(reg, 'goal_gate_check', {}, exec);
   assert.equal(ok.rc, 0, JSON.stringify(ok.results));

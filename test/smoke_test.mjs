@@ -59,8 +59,10 @@ assert.equal(extractMetric('quality=\x1b[32m0.75\x1b[0m', 'quality=([0-9.]+)'), 
 console.log('✓ extractMetric: regex / fallback / null / alternation / ANSI cases');
 
 // maximize + baseline：delta=严格改善，abs（缺省）=不回退；无基线 → unverifiable
+// 首轮没有水位 ≠ 达标：只建档、不给结论（P1：原来首轮直接 passed，改一次 check
+// 文本就换一个指标序列、白拿一轮 PASS）。
 assert.equal(judgeExpected('maximize', { exitCode: 0, stdout: '' }), 'unverifiable', 'maximize w/o metric is NOT passed (Goodhart guard)');
-assert.equal(judgeExpected('maximize', { exitCode: 0, stdout: '3\n' }), 'passed', 'first measurement establishes the baseline (goal-loop numeric semantics)');
+assert.equal(judgeExpected('maximize', { exitCode: 0, stdout: '3\n' }), 'unverifiable', 'first measurement records the baseline but is NOT a pass (no waterline yet)');
 assert.equal(judgeExpected('maximize', { exitCode: 0, stdout: '11\n' }, { prev: 10, baseline: 'delta' }), 'passed', 'delta improves');
 assert.equal(judgeExpected('maximize', { exitCode: 0, stdout: '10\n' }, { prev: 10, baseline: 'delta' }), 'failed', 'delta requires strict improvement during normal rounds');
 assert.equal(judgeExpected('maximize', { exitCode: 0, stdout: '10\n' }, { prev: 10, baseline: 'delta', claimMode: true }), 'passed', 'claim mode does not require improving again after the last GO');
@@ -94,13 +96,15 @@ assert.equal(judgeExpected('judged', { exitCode: 0, stdout: '' }, { judgeExit: 1
 assert.equal(judgeExpected('judged', { exitCode: 0, stdout: '' }, { judgeExit: 127 }), 'unverifiable', 'missing judge (127) is unverifiable at the judge layer; runGate marks BROKEN');
 console.log('✓ judgeExpected: judged via deterministic judge (probe) covered');
 
-// runGate 基线闭环：首轮即通过并建立水位（goal-loop numeric 语义），次轮按 delta 判定
+// runGate 基线闭环：首轮只建档（unverifiable，不给结论），次轮按 delta 判定
 const metricContract = `objective: 指标闭环
 AC-1 | 行数要改善 | check: \`${lineCount('a.txt')}\` | metric: \`\\s*(\\d+)\` | baseline: delta | expected: maximize
 `;
 const mKey = metricKey(parseContract(metricContract).acs[0]);
 const r1 = runGate(metricContract, { cwd: dir });
-assert.equal(r1.results[0].status, 'passed', 'first run: baseline established and passes');
+assert.equal(r1.results[0].status, 'unverifiable', 'first run: baseline recorded, no verdict yet (no waterline)');
+assert.equal(r1.rc, 2, 'a contract whose only AC is unverifiable cannot GO (ratio 1 > 1/3)');
+assert.equal(r1.code, 'unverifiable');
 assert.equal(r1.baselineUpdates[mKey], 1, 'first run records metric value (keyed by metric identity)');
 const r2 = runGate(metricContract, { cwd: dir, baselines: { [mKey]: 1 } });
 assert.equal(r2.results[0].status, 'failed', 'second run: 1 is not > 1 (delta flat)');
@@ -155,16 +159,17 @@ const parsed2 = parseContract(`objective: x\ndeliverable: dist/app.html\nAC-1 | 
 assert.equal(parsed2.deliverable, 'dist/app.html', 'deliverable declaration parsed');
 console.log('✓ evidence binding: digest match / mismatch voided / back-compat / deliverable parsed');
 
-// judged 质量分进指标管道:score 行被提取、归一,可配 delta 逐轮逼优
+// judged 质量分进指标管道:score 行由判读席(probe)给出、归一,可配 delta 逐轮逼优。
+// P1:分数只能来自判官,被评产物自己印的 score 不被采信(否则自己给自己打分)。
 const qs = `objective: 质量分
-AC-1 | 质量评审 | check: \`${sequence(echo('VERDICT: PASS'), echo('score: 7'), echo('artifact: ev.txt'), echo(`digest: sha256:${goodDigest}`))}\` | probe: \`${ok()}\` | expected: judged
+AC-1 | 质量评审 | check: \`${sequence(echo('VERDICT: PASS'), echo('score: 9'), echo('artifact: ev.txt'), echo(`digest: sha256:${goodDigest}`))}\` | probe: \`${echo('score: 7')}\` | expected: judged
 `;
 const q1 = runGate(qs, { cwd: dir });
 const qKey = metricKey(parseContract(qs).acs[0]);
 assert.equal(q1.results[0].status, 'passed', 'judged with evidence passes');
-assert.equal(q1.baselineUpdates[qKey], 0.7, 'judged score extracted & normalized (7 -> 0.7) into metrics');
+assert.equal(q1.baselineUpdates[qKey], 0.7, 'judge-reported score extracted & normalized (7 -> 0.7); the artifact self-report (9) is ignored');
 assert.equal(q1.results[0].value, 0.7, 'score surfaces as the AC value');
-console.log('✓ judged quality score enters the metric pipeline (delta-able)');
+console.log('✓ judged quality score enters the metric pipeline (judge-reported only, delta-able)');
 
 // per-AC timeout:短超时击杀慢检查;放宽后放行(30s 缺省不可配的缺陷回归)
 const tSlow = `AC-1 | 慢检查 | check: \`${sleep(2)}\` | timeout: 1 | expected: exit=0`;

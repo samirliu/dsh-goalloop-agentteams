@@ -77,8 +77,9 @@ same sense as `update_goal(complete)`, it is included in the completion intercep
 Returning `{kind:'ask', reason?, displayReason?}` from `tools/pre-execute` routes the
 call through `ctx.approval.request(...)`; only `allowed-once` grants. Under policy
 `never` the request is rejected deterministically before any answerer. The plugin uses
-this only for `goal_gate_stamp` when `requireHumanApproval: true`, so headless loops
-keep working by default.
+this for `goal_gate_stamp` by default (`requireHumanApproval !== false`), because
+stamping freezes *what counts as done* — that must be the human's decision, not the
+model's. Set `requireHumanApproval: false` explicitly for fully headless loops.
 
 ## 7. Bootstrap, bundle and testing
 

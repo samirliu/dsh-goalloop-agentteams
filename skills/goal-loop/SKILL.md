@@ -81,15 +81,23 @@ AC-N | <yes/no statement> | check: `<failable command>` | [probe: `<instrument c
 - `metric:` extracts one capture group from stdout after ANSI stripping; use
   it whenever output contains other numbers.
 - `maximize`/`minimize` compare with the previous **accepted** value; the first
-  run sets the water mark and **passes** (`delta` starts at run 2; `abs` = no
-  regression, `delta` = strict improvement on normal rounds). At a completion
+  run only records the water mark and is `unverifiable` — it does **not** pass
+  (a fresh metric series must not hand out a free PASS; the metric identity is
+  the AC id plus the statement, so editing the instrument keeps the history).
+  `delta` starts at run 2; `abs` = no
+  regression, `delta` = strict improvement on normal rounds. At a completion
   claim `delta` degrades to no-regression: a GO is not invalidated by repeating
   the same measurement. `tolerance:` is a relative band;
   `sd:`/`var:` widen it to `max(2*spread/|prev|, tolerance)` (`var` is sqrt'd);
   declared but unmatched spread = broken.
 - `judged` needs a verdict with `artifact: <path>` and `digest: sha256:<64hex>`
-  (the gate recomputes the hash); unbound, stale, missing judge or failed
-  `calib:` (`calib-good: PASS` + `calib-bad: FAIL`) = broken (decisive NO-GO).
+  (the gate recomputes the hash; the artifact must resolve inside the evaluated
+  workspace); unbound, stale, missing judge or failed
+  `calib:` = broken (decisive NO-GO). With `calib:` the `probe` must contain a
+  `{file}` placeholder: the gate runs it against the known-good fixture (must
+  exit 0) and the known-bad fixture (must exit non-zero) itself. A `score:` in
+  the judge's output feeds the metric pipeline; a `score:` printed by the
+  artifact under review is ignored.
 - `broken` is decisive NO-GO (bad probe/metric/judge/calib/evidence/spec);
   `unverifiable` is soft (> 1/3 => NO-GO). `exit=0`/`exit=N` assert an exact
   exit code; `exit: forge` is unsupported.

@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { mkdtemp, ok, fileExists } from './fixtures/shell.mjs';
+import { readState, writeState } from '../lib/ledger.js';
 
 const mod = await import('../lib/index.js');
 
@@ -120,11 +121,13 @@ function claimDecision(reg, exec, name, args) {
   const unstamped = await claimDecision(reg, exec, 'update_goal', { action: 'complete' });
   assert.equal(unstamped.info.code, 'unstamped', 'requireStamp denies unapproved contracts');
   await call(reg, 'goal_gate_stamp', { approvedBy: 'tester', timeBudgetMinutes: 1 }, exec);
-  // forge an approval timestamp in the past: no need to wait a minute in tests
+  // forge an approval timestamp in the past: no need to wait a minute in tests.
+  // 账本现在带 HMAC 签名(P0-2):必须经 writeState 回写以重新签名,直接
+  // fs.writeFileSync 会被判成"账本被改写"。
   const ledger = path.join(work, '.goal-gate');
-  const state = JSON.parse(fs.readFileSync(path.join(ledger, 'state.json'), 'utf8'));
+  const state = readState(work);
   state.approval.approvedAt = new Date(Date.now() - 5 * 60_000).toISOString();
-  fs.writeFileSync(path.join(ledger, 'state.json'), JSON.stringify(state));
+  writeState(work, state);
   const timed = await claimDecision(reg, exec, 'update_goal', { action: 'complete' });
   assert.equal(timed.kind, 'deny');
   assert.match(timed.reason, /goal-gate:(time-budget|no-go)/, 'non-GO at expiry is denied');
@@ -133,9 +136,9 @@ function claimDecision(reg, exec, name, args) {
   fs.writeFileSync(path.join(ledger, 'goal.md'), `objective: fuse\nAC-1 | pass | check: \`${fileExists('a.txt')}\` | expected: exit=0\n`);
   // contract edit voids the stamp; re-approve, keeping the expired clock
   await call(reg, 'goal_gate_stamp', { approvedBy: 'tester', restamp: true }, exec);
-  const s2 = JSON.parse(fs.readFileSync(path.join(ledger, 'state.json'), 'utf8'));
+  const s2 = readState(work);
   s2.approval.approvedAt = new Date(Date.now() - 5 * 60_000).toISOString();
-  fs.writeFileSync(path.join(ledger, 'state.json'), JSON.stringify(s2));
+  writeState(work, s2);
   const greenAtExpiry = await claimDecision(reg, exec, 'update_goal', { action: 'complete' });
   assert.equal(greenAtExpiry.kind, 'allow', 'GO still delivers after the wall-clock fuse');
   console.log('✓ v0.7 fuses: requireStamp / time-budget denies red / green still delivers');
@@ -265,7 +268,7 @@ function claimDecision(reg, exec, name, args) {
   assert.equal(blocked.info.code, 'blocked');
   assert.ok(!reg.tools.some((t) => /reset/.test(t.name)), 'no model-facing reset tool');
   const cmd = reg.cmds.find((c) => c.name === 'goal-reset');
-  const r = cmd.handler({ rawInput: '--new-loop human recovered', agent: exec.agent });
+  const r = await cmd.handler({ rawInput: '--new-loop human recovered', agent: exec.agent });
   assert.equal(r.kind, 'success');
   const state = JSON.parse(fs.readFileSync(path.join(work, '.goal-gate', 'state.json'), 'utf8'));
   assert.equal(state.falseCompletes, 0, 'human reset clears the block');

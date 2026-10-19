@@ -4,12 +4,18 @@
 
 契约先行；门控**自己重跑每条 check**（零模型信任）；人类盖章冻结"done 的定义"；verdict 绑定内容摘要；假完成在 `update_goal` / 团队任务 / 任务板三个完成面被 `tools/pre-execute` 硬拦。goal-loop 的便携 team 文件协议与双账本**故意不移植**——原生 Agent Teams 更强。
 
-**v0.9.1 — Agent Teams 编排：编队、收集、评审**（相对 0.6.2）：
+**v0.10.0 — 判定可信度加固**（相对 0.6.2）：
 
+- **账本可信，否则停下**：`state.json` 用 HMAC 签名，密钥存放在**工作区之外**；伪造、改写、截断或删除账本一律 `state-error`（exit 4），绝不静默重建。被评估的 agent 再也改不掉水位 / BLOCKED 闩锁 / 批准记录。
+- **锁保护的是临界区，不是整个工具面**：只读工具和普通工作不取锁；只有完成声明才取，锁里带 pid + 每次获取的独立 token，只有仍持有者能释放，持有进程已死则立即回收；`gate.mjs unlock` 是人工恢复路径。
+- **没有白拿的 PASS**：`maximize`/`minimize` 首轮只记录水位（判 `unverifiable`）；指标身份 = AC 编号 + **语句**哈希——改仪器不丢历史，改语句才换序列。
+- **判官由门控自己跑**：声明 `calib:` 时 `probe` 必须含 `{file}` 占位符，门控拿它分别对已知好夹具（必须退出 0）与已知坏夹具（必须退出非 0）各跑一次。`score:` 只认**判官**打印的那行；证据必须解析到被评估的工作区内。
+- **退出码说真话**：`check` 的退出码为 0 GO / 2 NO-GO / 3 BLOCKED / 4 state-error / 5 busy——"门控根本没跑起来"不再被当成"结论是失败"。
+- **拿不到工作区就 fail-closed**：没有 `cwd` 就不判定（原先回退 `process.cwd()`，那里没有契约，于是每条声明都放行）。`goal_gate_stamp` 默认走人批。
 - **BROKEN 是决定性的**：仪器缺失（rc 127）、probe 失败、取数失败、`sd:`/`var:` 匹配不到、judged 证据失联/过期、判官缺失、calib 缺陷一律 `broken` → NO-GO；不再能藏在"≤1/3 unverifiable"的放行带里。
 - **R3 批准盖章**：`goal_gate_stamp` / `/goal-stamp` 冻结契约与预算；之后任何契约编辑都会让完成声明以 `contract-revised` 被拒，直到显式重盖章。
 - **内容绑定摘要**：同尺寸改动也会改变摘要；检查期间改工作区判 `check-mutated-tree`；`dist/build/out` 不再被静默排除。
-- **目标面**：`minimize`、`!=`、数据驱动的 `sd:`/`var:` 噪声带、首轮建立水位、逐轮 `efficiency` 与策略归因。
+- **目标面**：`minimize`、`!=`、数据驱动的 `sd:`/`var:` 噪声带、首轮只记录水位（判 `unverifiable`，不白拿 PASS）、逐轮 `efficiency` 与策略归因。
 - **预算是保险丝**：轮次/墙钟预算在盖章时绑定，非 GO 的完成声明到点即拒；`/goal-reset --new-loop` 是人类恢复入口。
 - **DSH 原生**：拦截 `task_board_manage` 的 `move-done`；`dispatch:true` 与 `goal_gate_dispatch` 为 Team Lead 创建真实的原生 Agent Teams 任务；只读 `goal_gate_status` / `goal_gate_audit`。
 - **复杂用例修复（v0.9.1）**：完成声明轮 `delta` 不再要求二次改善；grill 不再误报按序同 scope / 已绑定证据的 judged；CLI 也走账本锁；`examples/plugin-e2e` 全部覆盖。
@@ -78,7 +84,7 @@ dsh plugin --profile <profile> add github:samirliu/dsh-goalloop-agentteams
 |---|---|---|
 | `maxRounds` | `8` | 新循环默认轮次预算 |
 | `requireStamp` | `false` | 未盖章时拒绝完成声明 |
-| `requireHumanApproval` | `false` | `goal_gate_stamp` 走 DSH approval seam（`ask`） |
+| `requireHumanApproval` | `true` | `goal_gate_stamp` 走 DSH approval seam（`ask`）；headless 循环请显式设 `false` |
 | `intercept` | `true` | 挂载 `tools/pre-execute` 完成声明拦截 |
 | `registerSkills` | `true` | 注册 `goal-loop` / `goal-loop-contract` 运行时 skill |
 | `shell` | 平台默认 | 执行 AC `check`/`probe` 的解释器（见「平台支持」） |
@@ -133,8 +139,8 @@ AC-N | <yes/no 判定语句> | check: `<可失败命令>` | [probe: `<仪器检�
 - **`scope:`** 是团队派工用的工作区写范围（`writeScopes`）；**`depends:`** 建依赖图（`blockedBy`、`plan.waves`）。
 - **`probe:`** 对数值/优化类 AC 先跑且必须通过；对 `judged` 它就是判官（退出码 = 结论）。probe 失败是 `broken`，绝不当 passed。
 - **`metric:`** 从 stdout 提取一个捕获组（先剥 ANSI）；不写则取最后一个数字。取不到必要指标 = `broken`。
-- **`maximize` / `minimize`** 与上一次**被接受**的值比较；首轮建立水位并 PASS。普通轮 `baseline: delta` 要求严格改善，`abs`（缺省）禁止回退；**完成声明时** `delta` 退化为不回退——上一次 GO 已接受当前水位，重复测量不需要再涨一次（真实恶化仍失败）。`tolerance:` 是相对噪声带；`sd:`/`var:` 把带扩大到 `max(2*spread/|prev|, tolerance)`（`var:` 开方）；声明了却匹配不到 = `broken`。
-- **`judged`** 结论必须含 `artifact: <路径>` 与 `digest: sha256:<64hex>`（门控重算）；无绑定、过期、读不到都判 `broken`。声明 `calib: good=<f> bad=<f>` 时还须含 `calib-good: PASS` 与 `calib-bad: FAIL`，且两个夹具必须存在。
+- **`maximize` / `minimize`** 与上一次**被接受**的值比较；首轮只记录水位（判 `unverifiable`，不给结论——新的指标序列不该白拿一轮 PASS）。普通轮 `baseline: delta` 要求严格改善，`abs`（缺省）禁止回退；**完成声明时** `delta` 退化为不回退——上一次 GO 已接受当前水位，重复测量不需要再涨一次（真实恶化仍失败）。`tolerance:` 是相对噪声带；`sd:`/`var:` 把带扩大到 `max(2*spread/|prev|, tolerance)`（`var:` 开方）；声明了却匹配不到 = `broken`。指标身份 = AC 编号 + **语句**哈希：改仪器不丢历史，改语句才换序列。
+- **`judged`** 结论必须含 `artifact: <路径>` 与 `digest: sha256:<64hex>`（门控重算），且证据文件必须落在被评估的工作区内；无绑定、过期、读不到都判 `broken`。声明 `calib: good=<f> bad=<f>` 时，`probe` 必须含 `{file}` 占位符，门控会拿它分别对两个夹具各跑一次：好夹具必须退出 0、坏夹具必须退出非 0。评审自述的 `calib-good: PASS` / `calib-bad: FAIL` 不再采信。
 - **检查产生的证据**（渲染、日志、判官输入）放 `.goal-gate/evidence/`——该目录不进摘要。检查写了工作区其它位置 → 本轮判 `check-mutated-tree`。
 - **`deliverable:`** 门控不强制，但驱动预检：没有任何 check 碰交付物、也没有运行时 AC，会在烧轮前亮 `deliverable-unverified` / `no-runtime-ac`。
 
@@ -155,7 +161,7 @@ AC-N | <yes/no 判定语句> | check: `<可失败命令>` | [probe: `<仪器检�
 
 - **R3 盖章**：`goal_gate_stamp({approvedBy, maxRounds?, timeBudgetMinutes?, restamp?, note?})` 把批准写进 `state.json`，可绑定预算。契约编辑会改变摘要；完成声明以 `contract-revised` 被拒，直到 `restamp:true`（或 `/goal-stamp`）。
 - **`requireStamp: true`**：未盖章禁止完成声明（默认 `false`；盖章仍是 `/goal-loop-at` 协议推荐动作）。
-- **`requireHumanApproval: true`**：`goal_gate_stamp` 本身走 DSH approval seam（`tools/pre-execute` 返回 `{kind:'ask'}`）；`never` 策略下自动 fail-closed。默认 `false`，headless 循环可用。
+- **`requireHumanApproval`**（默认 `true`）：`goal_gate_stamp` 本身走 DSH approval seam（`tools/pre-execute` 返回 `{kind:'ask'}`）——盖章冻结的是"什么叫做完"，这必须是人点的；`never` 策略下自动 fail-closed。headless 循环请显式设 `false`。
 - **轮次预算**（`maxRounds`，默认 8）与**墙钟预算**（`timeBudgetMinutes`）是保险丝：非 GO 的完成声明到点被拒（`rounds-exhausted` / `time-budget`）。墙钟到点**不没收已经 GO 的交付**。
 - **假完成棘轮**：`update_goal(complete)` 被拒 = 产物没完成，去修，不要重复声明。两次假完成 → `BLOCKED`，一切声明冻结。`/goal-reset [--new-loop]` 是人类唯一恢复入口（故意没有模型可调用的 reset 工具）。
 - **循环身份**：第二次 `goal_loop_at` 目标不同会拒（`objective-drift`）——改目标 = 改 done 的定义，必须编辑 + 重新批准，或换工作区/新循环。
@@ -212,8 +218,11 @@ AC-N | <yes/no 判定语句> | check: `<可失败命令>` | [probe: `<仪器检�
 <abs-node> <plugin>/bin/gate.mjs audit   --cwd <工作区>
 <abs-node> <plugin>/bin/gate.mjs stamp   --cwd <工作区> [--approved-by <who>] [--max-rounds <n>] [--time-budget-minutes <n>] [--restamp]
 <abs-node> <plugin>/bin/gate.mjs reset   --cwd <工作区> [--new-loop]
+<abs-node> <plugin>/bin/gate.mjs unlock  --cwd <工作区>
 <abs-node> <plugin>/bin/gate.mjs preflight --cwd <工作区> [--shell <shell>]
 ```
+
+`check` 的退出码为 `0` GO / `2` NO-GO / `3` BLOCKED / `4` state-error / `5` busy——"门控根本没跑起来"不等于"结论是失败"。`unlock` 强制回收卡住的账本锁（持有进程已死或失联）；它只清锁文件、不碰账本，账本由签名校验保护。
 
 ## DSH 宿主契约（0.2.1-rc.2 实测）
 
@@ -237,7 +246,7 @@ AC-N | <yes/no 判定语句> | check: `<可失败命令>` | [probe: `<仪器检�
 | digest 绑定 verdict（R7） | 内容哈希 `treeDigest` + `check-mutated-tree` + 声明绑定摘要 |
 | R1 假完成计数 → BLOCKED | `falseCompleteRule` + `/goal-reset`（人类） |
 | 目标水位 / `sd:`/`var:` | `maximize`/`minimize` 基线 + tolerance/spread 噪声带 + `efficiency` |
-| judged 判读席 + `calib:` | `artifact`+sha256 绑定 + `calib-good`/`calib-bad` 评级 |
+| judged 判读席 + `calib:` | artifact+sha256 绑定（限工作区内）+ 门控自跑 good/bad 夹具校准 |
 | `/goal-loop-at` 触发 + 循环预算 | `goal_loop_at` / `/goal-loop-at` + `loop.json` + 轮次/墙钟保险丝 |
 | `goal_audit.sh` 账本审计 | `goal_gate_audit` / `/goal-audit` |
 | crew/work-plan/roster/inbox/Teams 后端 | **丢弃**——原生 Agent Teams + 任务板 + `goal_gate_dispatch` |
