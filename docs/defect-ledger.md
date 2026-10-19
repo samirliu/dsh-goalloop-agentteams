@@ -73,6 +73,7 @@
 - **复杂用例回归**(v0.9.1):多波交付、grill 修复、预算/阻塞/重置、CLI 并发、judged digest;claim-mode delta 与 grill 误报修复
 - **平台中立**(v0.9.2):解释器显式解析与上报(POSIX `/bin/sh` ↔ Windows `%COMSPEC%`,可 `config.shell`/`GOAL_GATE_SHELL`/`--shell` 覆盖),解释器缺失 fail-loud 并给修复名;`app.asar` 模块回退改 `pathToFileURL`(Windows ESM 不再丢真 `defineTool`);测试与 e2e 夹具平台中立,Windows 默认 shell 与 Git Bash 双模式全绿
 - **判定可信度加固**(v0.10.0):账本完整性(HMAC 签名,密钥在工作区外;篡改/删除判 state-error,绝不静默重建)、锁正确性(只读不取锁、pid 存活检测、token 校验释放、re-stat 回收、`unlock` 人工恢复)、指标身份锚语句、首轮不判定、判官分数与 calib 由门控自跑、证据工作区围栏、CLI 退出码按 rc 如实映射(4=state-error/5=busy)、工作区缺失 fail-closed、盖章默认需人批
+- **入口不产出决策**(v0.10.0):十五个入口几乎全是 raw JSON,11/15 以 `{` 开头,没有任何"下一步做什么";`/goal-loop-at` 更是完全不碰 grill(`grillContract` 只有 `goal_gate_grill` 一条路),写好的评估纪律在开循环那一刻被绕过。修:开循环即自动 grill(只读、不烧轮、默认开,`grill:false`/`--no-grill` 可关),verdict 排进 nextActions 第一条可执行项(`fill-real-checks` 恒在最前,其次 `fix-contract-design`),派工前先 grill(`goal_loop_at({dispatch:true})` / `goal_gate_staff({spawn:true})` 在 verdict 非 ready 时拒绝造人并附 reason+findings+suggestions),盖章也 grill 但只告警(批准权在人)。同时校准 grill 严重度与确定性 preflight 对齐("什么都没执行"降为 low,preflight 已在报),否则每条静态契约都吃 high、派工门槛形同虚设
 
 ## 运营发现(循环侧,非内核缺陷)
 

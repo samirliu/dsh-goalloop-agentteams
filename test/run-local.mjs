@@ -27,6 +27,7 @@ const suites = [
   path.join('test', 'v08_test.mjs'),
   path.join('test', 'v09_test.mjs'),
   path.join('test', 'p0p1_regression_test.mjs'),
+  path.join('test', 'autogrill_test.mjs'),
   path.join('examples', 'plugin-e2e', 'run.mjs'),
 ];
 

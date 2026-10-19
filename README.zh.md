@@ -120,7 +120,7 @@ dsh plugin --profile <profile> add github:samirliu/dsh-goalloop-agentteams
 | `goal_gate_judge` | 为 judged AC 建冷席评审任务（fresh reviewer、digest/calib 简报） | `kind`、`dispatched`、`failed`、`skippedExisting`、`reason`、`suggestions` |
 | `goal_gate_doctor` | 自检工具/参数 schema/命令/skill/Teams/契约 | `ok`、`version`、`tools`、`commands`、`skills`、`agentTeams`、`contract`、`notes` |
 
-命令：`/goal-loop-at <objective>`、`/goal-gate`（状态）、`/goal-stamp [--restamp] [--max-rounds=N] [--time-budget-minutes=N] [approvedBy]`、`/goal-audit`、`/goal-grill`、`/goal-baseline [samples]`、`/goal-collect`、`/goal-judge [reviewer]`、`/goal-doctor`、`/goal-reset [--new-loop] [reason]`。
+命令：`/goal-loop-at <objective> [--no-grill]`、`/goal-gate`（状态）、`/goal-stamp [--restamp] [--max-rounds=N] [--time-budget-minutes=N] [approvedBy]`、`/goal-audit`、`/goal-grill`、`/goal-baseline [samples]`、`/goal-collect`、`/goal-judge [reviewer]`、`/goal-doctor`、`/goal-reset [--new-loop] [reason]`。
 
 运行时 skill：**`goal-loop`**（主 playbook）、**`goal-loop-contract`**（契约 forge / 盖章清单）与 **`goal-loop-grill`**（对抗式 eval/metric 设计）。通过 `ctx.skills.register` 注册进模型 skill 目录，无需文件系统安装。
 
@@ -200,6 +200,17 @@ AC-N | <yes/no 判定语句> | check: `<可失败命令>` | [probe: `<仪器检�
 ## 用 grilling 设计评估
 
 `goal_gate_grill` 是对契约的只读攻击（来自 goal-loop 的 grilling/contract-forge 纪律）：返回 `findings[severity, ac, issue, suggestion]`、还需要人回答的 `questions`、每个 optimize AC 的 `metricDesign` 建议，以及 `goodhart` 刷分路径。`verdict: ready` 要求没有 high/medium findings。`goal-loop-grill` skill 教模型跑 interview frontier：什么叫完成、便宜改动能不能刷分、哪个 known-bad 证明拒绝、基线与离散度量过没有、判官必须绑定什么证据。修完 → 重 grill → `goal_gate_baseline` → 盖章。
+
+### 开循环自动 grill
+
+`goal_loop_at`（或 `/goal-loop-at <objective>`）会自动跑同一套 `grillContract`：只读、不烧轮、随循环启动一起发生。结论落在返回值的 `grill` 字段，并排进 `nextActions` 的第一条可执行项——循环不会以"那现在干嘛"开头，只会以 verdict 开头。
+
+- **不拦开循环本身**：明知设计还不够好也可以先开工，回复里会明说。
+- **拦派工**：grill 结论不是 `ready` 时，`goal_loop_at({dispatch:true})` 与 `goal_gate_staff({spawn:true})` 拒绝创建队友，返回 `reason: "grill verdict=needs-work: …"` 加上拦路的 `findings` 与 `suggestions`。`TODO-REPLACE-ME` 占位的骨架契约正是这一条要拦的东西。
+- **不拦盖章**：`goal_gate_stamp` 也会 grill，只把 `grill` 作为告警回传——批准权在人，不在启发式。
+- **逃生门**：工具传 `grill:false`；命令传 `--no-grill` / `--grill=false`。未登记的拼写（如 `--grilling`）不是开关，只会留在目标文本里。
+
+严重度与确定性 preflight 对齐，所以 grill 是设计顾问而不是第二遍 lint："什么都没执行"只是 `low`（preflight 已经在报），`high` 留给真正的设计漏洞（"deliverable 没有任何 check 碰过"）。tautology 探针、缺噪声带、单边 judged、scope 重叠 仍是 `high`/`medium`。
 
 ## 只读状态与审计
 

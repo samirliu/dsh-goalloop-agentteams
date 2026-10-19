@@ -313,14 +313,21 @@ const invocation = {
   agent: { session: { header: { cwd: work5 } }, followup: (m) => followups.push(m) },
 };
 const cmdLoop = registeredCmds.find(c => c.name === 'goal-loop-at');
-const cmdRes = cmdLoop.handler(invocation);
+// 命令形态现在会跑一次只读 grill（默认开），所以 handler 是 async 的。
+const cmdRes = await cmdLoop.handler(invocation);
 assert.equal(cmdRes.kind, 'success');
 assert.ok(fs.existsSync(path.join(work5, '.goal-gate', 'loop.json')), 'command writes loop.json');
 assert.ok(fs.existsSync(path.join(work5, '.goal-gate', 'goal.md')), 'command writes contract');
 assert.equal(followups.length, 1, 'protocol delivered to agent via followup');
 assert.match(followups[0].content[0].text, /goal-loop activated/);
-assert.equal(cmdLoop.handler({ rawInput: '', agent: invocation.agent }).kind, 'error', 'empty objective -> usage error');
-console.log('✓ [11] /goal-loop-at: handler shape, init + followup protocol');
+assert.match(cmdRes.text, /^goal-loop started \(rounds=\d+\)/, 'command returns a human-readable summary');
+assert.match(cmdRes.text, /\ngrill: (ready|needs-work)/, 'auto-grill verdict is surfaced in the command reply');
+assert.equal((await cmdLoop.handler({ rawInput: '', agent: invocation.agent })).kind, 'error', 'empty objective -> usage error');
+// 显式关：--no-grill / --grill=false（逃生门必须真的关掉）
+const ws0 = await cmdLoop.handler({ rawInput: 'no grill here --no-grill', agent: { session: { header: { cwd: mkdtemp('goal-gate-wiring5b-') } } } });
+assert.equal(ws0.kind, 'success');
+assert.match(ws0.text, /grill: skipped \(--no-grill\)/, '--no-grill disables the automatic grill');
+console.log('✓ [11] /goal-loop-at: handler shape, init + followup protocol + auto-grill verdict');
 
 // ── goal_gate_check：score/轮次/趋势/failedActions/历史 ─────────────────────
 const checkTool = registeredTools.find(t => t.name === 'goal_gate_check');

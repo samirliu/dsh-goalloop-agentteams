@@ -146,6 +146,14 @@ process.exit(1);
 
   const start = await call(reg, 'goal_loop_at', { objective: 'ship a CSV-to-JSONL converter with validation, tests, benchmark and docs', maxRounds: 8 }, exec);
   assert.equal(start.created, false);
+  assert.ok(start.grill, 'goal_loop_at grills the design by default');
+  assert.equal(start.grill.verdict, 'needs-work');
+  assert.ok(Array.isArray(start.nextActions) && start.nextActions.length > 0, 'the start reply carries next actions, not just JSON');
+  const refused = await call(reg, 'goal_gate_staff', { spawn: true, members: [{ name: 'core-builder', acs: ['AC-1', 'AC-2', 'AC-4'] }, { name: 'docs-builder', acs: ['AC-3', 'AC-5'] }] }, exec);
+  assert.equal(refused.mode, 'suggestions', 'dispatch is refused while the grill verdict is not ready');
+  assert.equal(refused.dispatched.length, 0);
+  assert.match(refused.reason ?? '', /grill verdict=needs-work/);
+  assert.match(refused.findings[0].suggestion ?? '', /./, 'the refusal names what to fix');
 
   const weakGrill = await call(reg, 'goal_gate_grill', {}, exec);
   assert.equal(weakGrill.verdict, 'needs-work');

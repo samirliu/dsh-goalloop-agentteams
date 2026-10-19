@@ -27,18 +27,29 @@ parallel or solo; judging has one mode. **The gate decides completion; you do no
 
 ## Step 1 — Contract, then stamp
 
-1. `goal_loop_at({objective, acs?, maxRounds?, dispatch?})` writes
+1. `goal_loop_at({objective, acs?, maxRounds?, dispatch?, grill?})` writes
    `.goal-gate/goal.md` and `.goal-gate/loop.json`, returns `created`,
    `contractPath`, `loopPath`, `objective`, `maxRounds`, `tasks`, `protocol`,
-   `preflight` and (with `dispatch:true`) `dispatch`; each `acs` becomes one AC
+   `grill`, `nextActions` and (with `dispatch:true`) `dispatch`; each `acs` becomes one AC
    with the fail-closed placeholder check (`test -f TODO-REPLACE-ME`; under a
    Windows `cmd.exe` gate write `if exist TODO-REPLACE-ME (exit 0) else (exit 1)`,
    or set `shell` / `GOAL_GATE_SHELL` to a POSIX shell). `goal_gate_init({})`
    writes the skeleton only; `protocol` is the run checklist.
+   `grill` defaults to `true` — the reply always carries a fresh
+   `goal-loop-grill` verdict and `nextActions` never starts with "?".
 2. Shape the ACs; load **goal-loop-contract** when criteria are fuzzy, then **goal-loop-grill** to attack the eval/metric, the
    objective needs optimizing, or a judged AC is likely. One AC per line,
    with an exact `check:` command that can fail — and at least one runtime AC
    that executes the deliverable itself.
+   `goal_loop_at` and `/goal-loop-at` already grill the design for you
+   (read-only, burns no round, default on). The verdict lands in the reply's
+   `grill:` field and in `nextActions`; it does not block the loop. It *does*
+   block dispatch: `goal_gate_staff({spawn:true})` and
+   `goal_loop_at({dispatch:true})` refuse to create teammates while the grill
+   verdict is not `ready`. Escape hatch: pass `grill:false` (tool) or
+   `--no-grill` / `--grill=false` (command) when the caller already owns the
+   risk. `goal_gate_stamp` also grills and returns `grill:` as a warning
+   without blocking, because approval is the human's call.
 3. Pre-stamp evaluation design: load **goal-loop-grill** and run
    `goal_gate_grill({deep?})`. Fix every high/medium finding (tautology,
    unfalsifiable claim, Goodhart proxy, missing runtime evidence, judged
@@ -118,6 +129,8 @@ AC-N | <yes/no statement> | check: `<failable command>` | [probe: `<instrument c
   `reason?`, `suggestions?`. It is idempotent: a pending/in-progress task with
   the same contract stamp is reused, not duplicated; `assign` maps
   `{ "AC-1": "member" }` to owners. A non-Lead gets suggestions.
+  Dispatch refuses while the auto-grill verdict is not `ready` (see Step 1.2);
+  it says so in `reason` and names the blocking findings.
 - `goal_gate_staff({members?, spawn?})` is the orchestration step: preview the
   member→AC/wave assignment, then `spawn:true` only when the user wants real
   teammates. It creates/assigns one board task per owned AC and sends each

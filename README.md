@@ -136,7 +136,7 @@ or let the model call `goal_loop_at({objective, acs?, maxRounds?, dispatch?})`. 
 | `goal_gate_judge` | Create cold-seat review tasks for judged ACs (fresh reviewer, evidence/calib brief) | `kind`, `dispatched`, `failed`, `skippedExisting`, `reason`, `suggestions` |
 | `goal_gate_doctor` | Self-check tools/parameter schemas/commands/skills/Teams/contract | `ok`, `version`, `tools`, `commands`, `skills`, `agentTeams`, `contract`, `notes` |
 
-Commands: `/goal-loop-at <objective>`, `/goal-gate` (status), `/goal-stamp [--restamp] [--max-rounds=N] [--time-budget-minutes=N] [approvedBy]`, `/goal-audit`, `/goal-grill`, `/goal-baseline [samples]`, `/goal-collect`, `/goal-judge [reviewer]`, `/goal-doctor`, `/goal-reset [--new-loop] [reason]`.
+Commands: `/goal-loop-at <objective> [--no-grill]`, `/goal-gate` (status), `/goal-stamp [--restamp] [--max-rounds=N] [--time-budget-minutes=N] [approvedBy]`, `/goal-audit`, `/goal-grill`, `/goal-baseline [samples]`, `/goal-collect`, `/goal-judge [reviewer]`, `/goal-doctor`, `/goal-reset [--new-loop] [reason]`.
 
 Runtime skills: **`goal-loop`** (the playbook), **`goal-loop-contract`** (contract forge / stamp checklist) and **`goal-loop-grill`** (adversarial eval/metric design). They are registered with `ctx.skills.register` and appear in the model's skill catalog; no filesystem install is needed.
 
@@ -216,6 +216,17 @@ The plugin adapts to the native team service opportunistically (`ctx.get('agentT
 ## Eval design with grilling / 用 grilling 设计评估
 
 `goal_gate_grill` is a read-only attack on the contract, derived from goal-loop's grilling/contract-forge discipline. It returns `findings[severity, ac, issue, suggestion]`, the remaining `questions` for the user, `metricDesign` advice per optimize AC, and `goodhart` gaming paths. `verdict: ready` requires no high/medium findings. The `goal-loop-grill` skill teaches the interview frontier: ask what "done" means, how a cheap change could game the number, what known-bad case proves refusal, what baseline/spread was measured, and which evidence a judge must bind. Fix findings → re-grill → `goal_gate_baseline` → stamp.
+
+### Grilling is on by default / 开循环自动 grill
+
+Running `goal_loop_at` (or `/goal-loop-at <objective>`) grills the contract for you: the same `grillContract` pass, run inside the loop start, read-only and burning no round. The verdict lands in the reply as `grill` and as the first actionable `nextActions` entry, so a loop never starts with "what now?" — it starts with the verdict.
+
+- **It never blocks the loop itself.** A loop may start on a needs-work design; the reply says so.
+- **It does block dispatch.** `goal_loop_at({dispatch:true})` and `goal_gate_staff({spawn:true})` refuse to create teammates while the verdict is not `ready`, and answer with `reason: "grill verdict=needs-work: …"` plus the blocking `findings` and `suggestions`. Filling a skeleton contract with `TODO-REPLACE-ME` placeholders is exactly the case this catches.
+- **It never blocks a stamp.** `goal_gate_stamp` also grills and returns `grill` as a warning, because approval is the human's call, not the heuristic's.
+- **Escape hatch:** `grill:false` on the tool, `--no-grill` / `--grill=false` on the command. Undocumented spellings (e.g. `--grilling`) are *not* switches — the objective text keeps them.
+
+Severity is calibrated against the deterministic preflight so the grill is a design advisor, not a second lint pass: a statically-checked contract ("nothing executes at runtime") is `low` because `preflightChecks` already reports it; `high` is reserved for design holes ("deliverable is not touched by any check"). Tautology probes, missing noise bands, one-sided judged ACs and overlapping scopes stay `high`/`medium`.
 
 ## Read-only status and audit / 只读状态与审计
 

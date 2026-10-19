@@ -204,7 +204,16 @@ function claimDecision(reg, exec, name, args) {
   const lead = { lead: true, session: { header: { cwd: work } } };
   const member = { lead: false, session: { header: { cwd: work } } };
   await call(reg, 'goal_loop_at', { objective: 'dispatch', acs: ['one', 'two'] }, { agent: lead });
+  // 注意：两条 AC 用同一条 ok() 命令会触发"重复 check"medium finding，
+  // 自动 grill 判 needs-work，dispatch:true 会被拒（这正是新门槛要拦的）。
   fs.writeFileSync(path.join(work, '.goal-gate', 'goal.md'), `objective: dispatch\nAC-1 | one | check: \`${ok()}\` | expected: exit=0\nAC-2 | two | check: \`${ok()}\` | expected: exit=0\n`);
+  const blocked = await call(reg, 'goal_loop_at', { objective: 'dispatch', dispatch: true }, { agent: lead });
+  assert.equal(blocked.dispatch.dispatched.length, 0, 'dispatch is refused while the grill verdict is not ready');
+  assert.equal(created.length, 0, 'no team task is created for a not-ready design');
+  assert.match(blocked.dispatch.reason, /grill verdict=needs-work/);
+  assert.ok(blocked.dispatch.findings.length >= 1, 'refusal names the blocking findings');
+  // 修掉设计缺陷（两条 AC 各自验不同的东西）→ 自动 grill 放行 → 真派工
+  fs.writeFileSync(path.join(work, '.goal-gate', 'goal.md'), `objective: dispatch\nAC-1 | one exists | check: \`${fileExists('a.txt')}\` | expected: exit=0\nAC-2 | tool runs | check: \`${ok()}\` | expected: exit=0\n`);
   const loop = await call(reg, 'goal_loop_at', { objective: 'dispatch', dispatch: true }, { agent: lead });
   assert.equal(loop.dispatch.kind, 'agent-teams');
   assert.equal(loop.dispatch.dispatched.length, 2, 'one native team task per AC');

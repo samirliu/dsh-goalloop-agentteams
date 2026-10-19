@@ -12,9 +12,10 @@ machine-readable next steps.
 
 ```
 objective
-  → contract skeleton (goal_loop_at)
-  → grill + baseline + user approval (goal_gate_grill / goal_gate_baseline / goal_gate_stamp)
+  → contract skeleton (goal_loop_at)  ── auto-grills the design in the same call
+  → baseline + user approval (goal_gate_baseline / goal_gate_stamp)
   → plan waves (depends:) + dispatch (goal_loop_at dispatch / goal_gate_dispatch)
+      ↳ refused while the auto-grill verdict is not ready
   → members work, complete team tasks
   → join + gate (goal_gate_check)
   → nextActions: repair / dispatch / collect / assign / re-check / stop
@@ -28,17 +29,21 @@ objective
 | Wave planning | `depends:` → topological `plan.waves`; `scope:` → write scope | parallel work without merge chaos |
 | Dispatch | native Agent Teams tasks with `blockedBy`/`writeScopes`; idempotent by contract stamp | re-checks never multiply the board |
 | Staffing | `goal_gate_staff` previews member→AC/wave; `spawn:true` creates teammates, assigns tasks and sends a brief | the team is a real roster, not a plan |
+| Design gate | loop start and stamp both grill the contract; dispatch refuses while the verdict is not `ready` | a skeleton contract never becomes a task list |
 | Convergence | `goal_gate_check` is the only GO authority; `nextActions` routes the next step | no "continue until it feels done" |
 | Stop rules | round budget, wall-clock budget, BLOCKED (2 false completes), loop-idle | grinding and self-declaration are both named |
 | Human path | `/goal-stamp`, `/goal-reset`, approval seam for stamp | recovery and approval stay human |
 | Concurrency | ledger lock around check/stamp/dispatch/claim | multiple members cannot corrupt rounds or baselines |
 | Non-Lead fallback | suggestions + `subagent`/`task_board_create` guidance | the loop works without the Teams service |
 
-`nextActions` is deliberately small and closed: `create-contract`, `fix-contract`,
-`fix-instrument`, `fix-regression`, `dispatch-repairs`, `repair-then-check`,
-`probe-again`, `run-check`, `audit-and-claim`, `stop-blocked`, `stop-budget`,
-`assign-ready-tasks`, `collect-team`, `loop-suspended`. A controller can follow it
-mechanically; a model can explain it.
+`nextActions` is deliberately small and closed: `create-contract`, `fill-real-checks`,
+`fix-contract-design`, `fix-contract`, `fix-instrument`, `fix-regression`,
+`dispatch-repairs`, `repair-then-check`, `probe-again`, `run-check`, `audit-and-claim`,
+`stop-blocked`, `stop-budget`, `assign-ready-tasks`, `collect-team`, `loop-suspended`.
+A controller can follow it mechanically; a model can explain it. `fill-real-checks` and
+`fix-contract-design` are the auto-grill contributions: they come first so that
+"replace the TODO placeholder" and "fix the tautology" are never buried under
+"run the check again".
 
 ## 2. Right eval
 

@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { withLedgerLock, acquireLedgerLock } from '../lib/ledger.js';
 import { grillContract } from '../lib/grill.js';
-import { mkdtemp, ok, metric, showFile, fileContains } from './fixtures/shell.mjs';
+import { mkdtemp, ok, metric, showFile, fileContains, nodeNoop } from './fixtures/shell.mjs';
 
 const mod = await import('../lib/index.js');
 
@@ -87,7 +87,20 @@ AC-2 | ui | check: \`${ok()}\` | scope: src/ui | depends: AC-1 | expected: exit=
   assert.equal(team.tasks.length, 0, 'preview creates no tasks');
 
   const spawned = await call(reg, 'goal_gate_staff', { spawn: true }, exec);
-  assert.equal(spawned.mode, 'spawned');
+  // 派工前会先 grill 设计；这个骨架两条 AC 用同一条 ok()，属"重复仪器"的 medium finding。
+  // 门自己会把 spawn:false 放过去（预览不该被拦），但 spawn:true 要先看到契约是活的。
+  if (spawned.mode === 'suggestions') {
+    assert.match(spawned.reason, /grill verdict=needs-work/, 'spawn is refused with the grill verdict');
+    assert.ok(spawned.findings.length >= 1, 'and names the blocking findings');
+    fs.writeFileSync(path.join(work, '.goal-gate/goal.md'), `objective: staffed team
+AC-1 | core | check: \`${ok()}\` | scope: src/core | expected: exit=0
+AC-2 | ui | check: \`${nodeNoop()}\` | scope: src/ui | depends: AC-1 | expected: exit=0
+`);
+    const retried = await call(reg, 'goal_gate_staff', { spawn: true }, exec);
+    assert.equal(retried.mode, 'spawned', 'retry after fixing the design');
+  } else {
+    assert.equal(spawned.mode, 'spawned');
+  }
   assert.equal(team.spawns.length, 2, 'one teammate per dependency wave');
   assert.match(team.spawns[0].prompt[0].text, /You own: AC-1/);
   assert.equal(team.tasks.length, 2);
