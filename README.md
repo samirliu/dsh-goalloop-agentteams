@@ -59,7 +59,32 @@ dsh plugin --profile <profile> add github:samirliu/dsh-goalloop-agentteams
 
 The package declares `dsh.bundle` with a `cordis.patch.yml` beside it, so `dsh plugin add` mounts the `goal-gate` row directly. Restart the profile after install (host code, commands and skills are composed at boot).
 
+⚠️ **Release pinning:** install from a checkout or a release ≥ v0.7.0. The v0.6.x releases predate the DSH 0.2.1-rc.2 tool-registration contract (schema-only `output` with no `render`), so they install cleanly and then fail on every *successful* tool call — `--dump-config` cannot tell them apart.
+
 ⚠️ **Entry contract:** the entry must export `name` equal to the `cordis.patch.yml` id (`goal-gate`) alongside `inject` and `apply`. A missing `name` makes the Host silently skip the bundle. `link:` installs additionally may resolve `@deepseek-ai/dsh-tools` differently than registry installs; the entry tries the bare package first and falls back to a same-shape shim, and both paths are exercised by tests.
+
+## Platforms / 平台支持
+
+The gate re-runs every AC `check` itself, so *it* owns the shell — the choice is explicit and reported, never a silent platform assumption:
+
+| Platform | Default shell | Override |
+|---|---|---|
+| Linux / macOS | `/bin/sh -c` | `config.shell` / `GOAL_GATE_SHELL` |
+| Windows | `%COMSPEC%` → `cmd.exe /d /s /c` | `config.shell` / `GOAL_GATE_SHELL`, absolute path to `sh.exe`, `bash.exe`, `pwsh.exe` or `cmd.exe` |
+
+- The shell that judged a round is reported as `shell` in `goal_gate_check`, `goal_gate_status` and `bin/gate.mjs check` output.
+- A missing shell binary is `broken` with an explicit *"gate shell not found …"* reason (config problem, not a failing artifact) — never a mute `failed`.
+- `preflight` emits `posix-syntax-on-cmd` when a check looks POSIX (`test`, `grep`, `&&`, `$VAR`) while the Windows gate would run `cmd.exe`.
+- On Windows either write checks in cmd/pwsh syntax, or point the plugin at a POSIX shell:
+
+```yaml
+- id: goal-gate
+  name: dsh-goalloop-agentteams
+  config:
+    shell: 'C:\Program Files\Git\usr\bin\sh.exe'
+```
+
+Precedence: `bin/gate.mjs --shell` / plugin `config.shell` > `GOAL_GATE_SHELL` > platform default. A POSIX-style contract on a `cmd.exe` gate is a trap the preflight warning and the reported `shell` field are designed to expose before two false completes latch `BLOCKED`.
 
 ## Plugin config / 插件配置
 
@@ -72,6 +97,7 @@ The package declares `dsh.bundle` with a `cordis.patch.yml` beside it, so `dsh p
 | `requireHumanApproval` | `false` | Route `goal_gate_stamp` through the DSH approval seam (`ask`) |
 | `intercept` | `true` | Mount the `tools/pre-execute` completion interceptor |
 | `registerSkills` | `true` | Register the `goal-loop` / `goal-loop-contract` runtime skills |
+| `shell` | platform default | Shell that executes AC `check`/`probe` commands (see *Platforms*) |
 
 ## Quick start / 快速开始
 
@@ -197,12 +223,12 @@ The plugin adapts to the native team service opportunistically (`ctx.get('agentT
 A resumed session may lack the plugin's tool table. The same ledger and the same gate are reachable from any shell (resolve the absolute Node path from `process.execPath` or plugin config — **never write a bare `node`**):
 
 ```sh
-<abs-node> <plugin>/bin/gate.mjs check   --cwd <workspace> [--strategy <s>] [--note <n>]
+<abs-node> <plugin>/bin/gate.mjs check   --cwd <workspace> [--strategy <s>] [--note <n>] [--shell <shell>]
 <abs-node> <plugin>/bin/gate.mjs status  --cwd <workspace>
 <abs-node> <plugin>/bin/gate.mjs audit   --cwd <workspace>
 <abs-node> <plugin>/bin/gate.mjs stamp   --cwd <workspace> [--approved-by <who>] [--max-rounds <n>] [--time-budget-minutes <n>] [--restamp]
 <abs-node> <plugin>/bin/gate.mjs reset   --cwd <workspace> [--new-loop]
-<abs-node> <plugin>/bin/gate.mjs preflight --cwd <workspace>
+<abs-node> <plugin>/bin/gate.mjs preflight --cwd <workspace> [--shell <shell>]
 ```
 
 ## DSH host contract notes / 宿主契约（0.2.1-rc.2 实测）
@@ -213,6 +239,8 @@ A resumed session may lack the plugin's tool table. The same ledger and the same
 - Skills are registered in-memory with `ctx.skills.register({name, description, content, source, …})`; DSH does not scan a package's `skills/` directory.
 - Workspace root comes from `exec.agent.session.header.cwd`; there is no `exec.session` / `exec.cwd`.
 - The native Agent Teams service is `ctx.get('agentTeams')` (optional, never `inject`); its tasks are the `team_task_*` tools, not `agent_teams_*`.
+- The gate shells out on its own: `/bin/sh -c` on POSIX, `%COMSPEC%` on Windows (see *Platforms*). `app.asar` module fallbacks are loaded through `pathToFileURL`, because ESM rejects bare `C:\…` paths on Windows (`ERR_UNSUPPORTED_ESM_URL_SCHEME`).
+- `agent.followup(...)` does **not** exist on the 0.2.1-rc.2 Agent; `/goal-loop-at` therefore returns the protocol in its command result instead of injecting it.
 
 `docs/platform-contract.md` records the verified evidence and probe method.
 
@@ -243,6 +271,12 @@ A resumed session may lack the plugin's tool table. The same ledger and the same
 
 ```sh
 <abs-node> test/run-local.mjs
+```
+
+The suite is platform-neutral and runs on Windows (`cmd.exe` gate) and POSIX (`/bin/sh`) alike; `GOAL_GATE_SHELL` selects the shell, so a POSIX shell on Windows (Git Bash, WSL) is exercised with the same files:
+
+```sh
+$env:GOAL_GATE_SHELL='C:\Program Files\Git\usr\bin\sh.exe'; <abs-node> test/run-local.mjs
 ```
 
 The real `@deepseek-ai/dsh-tools` lives inside the DSH Host and is not importable outside it, so the entry falls back to a parameter-schema-compiling shim. Tests never write a `node_modules/@deepseek-ai/dsh-tools` shim into the package directory: in a `link:` install that shim wins module resolution and the Host would register un-compiled parameter schemas (the provider rejects them with `type: null`). The suite covers core judgement, wiring (all tools/commands/skills, provider-visible parameter schemas), ledger/audit/stamp, red-team defences, purity, load-safety without commands, the v0.7 surfaces (fuses, task-board claims, dispatch, efficiency, reset), the v0.8 surfaces (scope/depends waves, idempotent/blocked dispatch, team snapshot/nextActions, grilling, baseline/spread, ledger lock) and the v0.9 surfaces (staff preview/spawn, collect readiness, judge tasks, lock wait, horizon guard). The real-host registration contract is verified against the extracted 0.2.1-rc.2 packages; see `docs/platform-contract.md`.

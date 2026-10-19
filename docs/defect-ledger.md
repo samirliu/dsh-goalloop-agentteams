@@ -52,6 +52,8 @@
 | 43 | 完成声明重复要求 delta 改善 | GO 已经接受当前水位;拦截器重跑同一 optimize AC 时 `baseline: delta` 仍要求再涨一次,一次正常波动就能把已 GO 的目标判 NO-GO | `runGate(mode:'claim')`:声明轮 `delta` 退化为不回退(真恶化仍失败);`goal_gate_check` 保持严格 delta | e2e case1;smoke:claimMode |
 | 44 | grill 对"按序同 scope"和"有 probe+calib 的 judged"误报 | 顺序依赖的两个 AC 共享目录被报 scope 冲突;任何 judged 都带 medium "must bind evidence" → 有 judged 的契约永远无法 ready | scope 冲突仅在**无 depends 顺序**时报告;judged evidence 改为 low 提醒(门控仍强制 digest/calib) | v09:ordered/judged grill |
 | 45 | CLI 并发无锁 | `bin/gate.mjs check/stamp` 绕过账本锁,两个进程并发会互相覆盖 round/baseline;case4 暴露 | CLI check/stamp 走 `withLedgerLock(...,{waitMs:2000})`,busy 明确退出 | examples/plugin-e2e case4 |
+| 46 | **Windows 上门控永远 NO-GO** | `runCommand` 硬编码 `spawnSync('/bin/sh', ['-c', cmd])`;Windows 无 `/bin/sh` → ENOENT → 映射 128 → 所有 AC 判 failed/broken → 门控永不 GO,拦截器拦掉每次 `update_goal(complete)`/`team_task_update(complete)`,两次后 BLOCKED | 显式解释器解析 `resolveShell()`:POSIX 默认 `/bin/sh -c`,Windows 默认 `%COMSPEC% /d /s /c`(verbatim 参数);`config.shell`/`GOAL_GATE_SHELL`/`--shell` 可覆盖;结论带 `shell` 字段;解释器缺失判 broken 并点名修复;preflight 新增 `posix-syntax-on-cmd`;超时识别 `ETIMEDOUT` | 平台中立夹具:+ Windows 默认 shell / Git Bash sh 双模式全量套件 |
+| 47 | **CRLF checkout 下 skill 静默消失** | `parseSkillFile` 用 `([A-Za-z0-9_-]+):\s*(.*)$`(无 m 标志)解析 frontmatter;Windows / `core.autocrlf=true` 的 CRLF 让 `$` 落不到行尾 → description 为空 → 3 个 runtime skill 全部被跳过(真实 Git checkout 上 wiring 断言得到 `[]`;LF 工作区不复现) | 读取时 `\r\n?` → `\n` 归一化再解析;导出 `parseSkillFile` 并加 CRLF frontmatter 回归用例 | wiring:CRLF frontmatter |
 
 ## 质量演进
 
@@ -69,6 +71,7 @@
 - **评估设计**(v0.8.0):grilling skill + grill 工具、基线与离散度测量、数据驱动噪声带、第三个运行时 skill
 - **团队编排**(v0.9.0):staff 预览/spawn、collect 就绪判定、judge 冷席评审、锁等待、horizon 防线
 - **复杂用例回归**(v0.9.1):多波交付、grill 修复、预算/阻塞/重置、CLI 并发、judged digest;claim-mode delta 与 grill 误报修复
+- **平台中立**(v0.9.2):解释器显式解析与上报(POSIX `/bin/sh` ↔ Windows `%COMSPEC%`,可 `config.shell`/`GOAL_GATE_SHELL`/`--shell` 覆盖),解释器缺失 fail-loud 并给修复名;`app.asar` 模块回退改 `pathToFileURL`(Windows ESM 不再丢真 `defineTool`);测试与 e2e 夹具平台中立,Windows 默认 shell 与 Git Bash 双模式全绿
 
 ## 运营发现(循环侧,非内核缺陷)
 

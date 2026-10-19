@@ -33,8 +33,9 @@ schema is authored against the supported subset (nullable objects expressed as
   `input` entirely.
 - `handler(invocation)` receives `{ commandId, agent, rawInput, attachments, signal }`
   and must return `{kind:'success'|'error', text}` (or the richer command result shape).
-  A handler may call `agent.followup(...)`; the message must be a full `UserMessage`
-  (`id`, `role:'user'`, `content`, `source:{kind:'user'}`).
+  There is **no** `agent.followup(...)` on the 0.2.1-rc.2 Agent (`followup` has zero
+  occurrences in the shipped packages), so a handler cannot inject a `UserMessage`;
+  `/goal-loop-at` therefore returns its protocol inside the command result.
 - Verified through a real plugin fiber: all five commands appear in
   `ctx.commands.list(agent)` after `ctx.plugin({name, inject, apply})`.
 
@@ -82,8 +83,10 @@ keep working by default.
 ## 7. Bootstrap, bundle and testing
 
 - A bundle package declares `dsh.bundle.patch` → `cordis.patch.yml`; the patch is a
-  top-level list with `insert: [{ id, name, config }]`. The entry must export `name`
-  equal to the row id; a missing `name` makes the Host skip the bundle silently.
+  top-level list with `insert: [{ id, name, config }]`. The row `name` is the import
+  specifier and the entry's exported `name` is display-only — the loader does **not**
+  require them to be equal (`cordis-plugin-loader/lib/index.js:453,460,667-672`).
+  Keeping them equal stays good hygiene: `name: 'goal-gate'` matches the row id.
 - Scratch-profile verification without touching the user's GUI/profile:
   `dsh plugin --profile scratch add <path>`, then `dsh --profile scratch --dump-config`.
   The dump shows `# == dsh-goalloop-agentteams` and the `id: goal-gate` row.
@@ -98,6 +101,11 @@ keep working by default.
   shim hands the model raw parameter maps, and the provider rejects the whole request
   with `schema must be a JSON Schema of 'type: "object"', got 'type: null'` (observed
   on `goal_gate_audit`, which has an empty parameter map).
+- On Windows the asar fallback must go through `pathToFileURL`: `process.resourcesPath`
+  is `C:\…`, and ESM's `import()` rejects a bare absolute path with
+  `ERR_UNSUPPORTED_ESM_URL_SCHEME` ("Received protocol 'c:'"), so the real `defineTool`
+  would never load. The entry converts drive-letter paths to `file://` URLs before
+  importing; verified inside the installed Host binary (`ELECTRON_RUN_AS_NODE=1`).
 
 ## 8. Agent Teams surface used by v0.8
 
@@ -130,3 +138,34 @@ only its **deny** path was exercised end-to-end. On 0.2.1-rc.2:
 v0.7.0 fixes all four; `test/wiring_test.mjs` now asserts render presence, the output
 schema subset invariant and optional non-empty hints, and the registry harness above
 was re-run to prove successful GO/NO-GO returns.
+
+## 10. Shell: POSIX and Windows (0.9.x fix)
+
+The gate re-runs every AC `check` in a child shell. 0.9.x hard-coded
+`spawnSync('/bin/sh', ['-c', cmd])`, which is an invisible platform assumption:
+
+- On Windows `/bin/sh` does not exist, `spawnSync` returns `error: ENOENT` with
+  `status: null`; `runCommand` mapped that to exit code 128, so **every** AC became
+  `failed`/`broken`, the gate could never return GO, and the completion interceptor
+  denied every `update_goal(complete)` / `team_task_update(complete)` — two denials
+  latch `BLOCKED`. Measured on DSH 0.2.1-rc.2 / Windows: `{"cmd":"exit 0","exitCode":128}`.
+- The fix resolves the shell explicitly and reports it:
+
+  | Platform | Default | Arguments |
+  |---|---|---|
+  | POSIX | `/bin/sh` | `-c <cmd>` |
+  | Windows | `%COMSPEC%` (`cmd.exe`) | `/d /s /c "<cmd>"` with `windowsVerbatimArguments: true` (Node's own exec convention) |
+  | override | `sh`/`bash`/`zsh`/busybox | `-c <cmd>` |
+  | override | `pwsh`/`powershell` | `-NoProfile -NonInteractive -Command <cmd>` |
+
+  Precedence: `runGate({shell})` / plugin `config.shell` / `bin/gate.mjs --shell` >
+  `GOAL_GATE_SHELL` > platform default. The resolved label is returned as `shell`
+  in every gate result and in `goal_gate_status`.
+- A missing shell binary is reported as `broken` with an explicit reason
+  ("gate shell not found …") instead of a mute `failed`; `preflight` adds
+  `posix-syntax-on-cmd` when a check looks POSIX while the gate would run `cmd.exe`.
+- Timeout mapping now also recognises `r.error.code === 'ETIMEDOUT'` (Windows kill
+  does not always surface `SIGTERM`), so a timed-out check stays `rc=124`.
+- Platform-neutral fixtures keep the suite honest: the same tests pass with the
+  default Windows shell and with `GOAL_GATE_SHELL` pointing at a POSIX shell
+  (Git Bash), so neither platform's semantics regress.

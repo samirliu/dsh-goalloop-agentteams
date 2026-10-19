@@ -4,11 +4,13 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 import { runGate, metricKey } from '../lib/core.js';
 import { preflightChecks, recordRun, neverFailedAcs, readState, writeState, contractPath, readHistory } from '../lib/ledger.js';
+import { mkdtemp, ok, echo, fileExists, fileNotEmpty, fileContains, sequence } from './fixtures/shell.mjs';
 
-const cli = path.join(path.dirname(new URL(import.meta.url).pathname), '..', 'bin', 'gate.mjs');
+const cli = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'gate.mjs');
 const node = process.execPath;
 let attacks = 0, blocked = 0;
 function defense(name, ok, detail) {
@@ -19,15 +21,15 @@ function defense(name, ok, detail) {
 
 // ── 攻击 1:过期评审证据(评过的不是要发的)────────────────────────────
 {
-  const root = fs.mkdtempSync('/tmp/redteam-1-');
+  const root = mkdtemp('redteam-1-');
   fs.mkdirSync(path.join(root, '.goal-gate'));
   const art = path.join(root, 'deliverable.txt');
   fs.writeFileSync(art, 'v1 content\n');
   const digest = createHash('sha256').update(fs.readFileSync(art)).digest('hex');
   fs.writeFileSync(contractPath(root), `objective: 攻击1
 deliverable: deliverable.txt
-AC-1 | 评审 | check: \`echo artifact: deliverable.txt; echo digest: sha256:${digest}\` | probe: \`test -f deliverable.txt\` | expected: judged
-AC-2 | 运行时 | check: \`sh -c 'test -s deliverable.txt'\` | expected: exit=0
+AC-1 | 评审 | check: \`${sequence(echo('artifact: deliverable.txt'), echo(`digest: sha256:${digest}`))}\` | probe: \`${fileExists('deliverable.txt')}\` | expected: judged
+AC-2 | 运行时 | check: \`${fileNotEmpty('deliverable.txt')}\` | expected: exit=0
 `);
   const g1 = runGate(fs.readFileSync(contractPath(root), 'utf8'), { cwd: root });
   defense('过期评审证据(先给对的摘要)', g1.results[0].status === 'passed', `初判 ${g1.results[0].status}(应 passed)`);
@@ -40,26 +42,26 @@ AC-2 | 运行时 | check: \`sh -c 'test -s deliverable.txt'\` | expected: exit=0
 
 // ── 攻击 2:伪造摘要 ─────────────────────────────────────────────────
 {
-  const root = fs.mkdtempSync('/tmp/redteam-2-');
+  const root = mkdtemp('redteam-2-');
   fs.mkdirSync(path.join(root, '.goal-gate'));
   fs.writeFileSync(path.join(root, 'd.txt'), 'real\n');
   const g = runGate(`objective: 攻击2
 deliverable: d.txt
-AC-1 | 伪造评审 | check: \`echo artifact: d.txt; echo digest: sha256:${'0'.repeat(64)}\` | probe: \`test -f d.txt\` | expected: judged
-AC-2 | 运行时 | check: \`sh -c 'test -s d.txt'\` | expected: exit=0
+AC-1 | 伪造评审 | check: \`${sequence(echo('artifact: d.txt'), echo(`digest: sha256:${'0'.repeat(64)}`))}\` | probe: \`${fileExists('d.txt')}\` | expected: judged
+AC-2 | 运行时 | check: \`${fileNotEmpty('d.txt')}\` | expected: exit=0
 `, { cwd: root });
   defense('伪造评审摘要', g.results[0].status === 'broken', `判为 ${g.results[0].status}`);
 }
 
 // ── 攻击 3:无凭据评审却宣称通过(最难防的一类)───────────────────────
 {
-  const root = fs.mkdtempSync('/tmp/redteam-3-');
+  const root = mkdtemp('redteam-3-');
   fs.mkdirSync(path.join(root, '.goal-gate'));
   fs.writeFileSync(path.join(root, 'd.txt'), 'x\n');
   const g = runGate(`objective: 攻击3
 deliverable: d.txt
-AC-1 | 口头评审 | check: \`echo VERDICT: PASS\` | probe: \`true\` | expected: judged
-AC-2 | 运行时 | check: \`sh -c 'test -s d.txt'\` | expected: exit=0
+AC-1 | 口头评审 | check: \`${echo('VERDICT: PASS')}\` | probe: \`${ok()}\` | expected: judged
+AC-2 | 运行时 | check: \`${fileNotEmpty('d.txt')}\` | expected: exit=0
 `, { cwd: root });
   defense('无凭据评审宣称 PASS', g.results[0].status === 'broken' && g.code !== 'go',
     `判为 ${g.results[0].status},门控 ${g.code}`);
@@ -67,13 +69,13 @@ AC-2 | 运行时 | check: \`sh -c 'test -s d.txt'\` | expected: exit=0
 
 // ── 攻击 4:数据全过、交付物是坏的(检查只碰衍生品)────────────────────
 {
-  const root = fs.mkdtempSync('/tmp/redteam-4-');
+  const root = mkdtemp('redteam-4-');
   fs.mkdirSync(path.join(root, 'derived'));
   fs.writeFileSync(path.join(root, 'derived', 'stats.txt'), 'poly=9999 rows=42\n');
   const contract = `objective: 攻击4
 deliverable: app.html
-AC-1 | 衍生数据检查 | check: \`grep -q poly= derived/stats.txt\` | expected: exit=0
-AC-2 | 文件存在 | check: \`test -s derived/stats.txt\` | expected: exit=0
+AC-1 | 衍生数据检查 | check: \`${fileContains('derived/stats.txt', 'poly=')}\` | expected: exit=0
+AC-2 | 文件存在 | check: \`${fileNotEmpty('derived/stats.txt')}\` | expected: exit=0
 `;
   // 注意:交付物 app.html 根本不存在、也没有任何检查碰它
   const warnings = preflightChecks(contract);
@@ -84,13 +86,13 @@ AC-2 | 文件存在 | check: \`test -s derived/stats.txt\` | expected: exit=0
 
 // ── 攻击 5:永真式检查 + 评审过审后换皮 ───────────────────────────────
 {
-  const root = fs.mkdtempSync('/tmp/redteam-5-');
+  const root = mkdtemp('redteam-5-');
   fs.mkdirSync(path.join(root, '.goal-gate'));
   fs.writeFileSync(path.join(root, 'd.txt'), 'x\n');
   const contract = `objective: 攻击5
 deliverable: d.txt
-AC-1 | 永真 | check: \`echo done\` | expected: exit=0
-AC-2 | 运行时 | check: \`sh -c 'test -s d.txt'\` | expected: exit=0
+AC-1 | 永真 | check: \`${echo('done')}\` | expected: exit=0
+AC-2 | 运行时 | check: \`${fileNotEmpty('d.txt')}\` | expected: exit=0
 `;
   const warnings = preflightChecks(contract);
   defense('永真式检查混入契约', warnings.some((w) => w.kind === 'tautology-suspect'),
@@ -108,7 +110,7 @@ AC-2 | 运行时 | check: \`sh -c 'test -s d.txt'\` | expected: exit=0
 
 // ── 攻击 6:失败观测拉低基线(好定律漏洞回归)──────────────────────────
 {
-  const root = fs.mkdtempSync('/tmp/redteam-6-');
+  const root = mkdtemp('redteam-6-');
   const st = { falseCompletes: 0, digests: {}, baselines: {}, bestScore: null };
   const gFail = { code: 'no-go', score: 0.1, stamp: 'X', results: [{ id: 'AC-1', status: 'failed' }], baselineUpdates: { 'AC-1#k': 1 } };
   recordRun(root, st, gFail, 'check');

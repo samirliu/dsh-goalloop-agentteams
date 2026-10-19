@@ -14,12 +14,15 @@ import path from 'node:path';
 import os from 'node:os';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileExists, fileContains, showFile, sleep, nodeNoop, sequence, all } from '../../test/fixtures/shell.mjs';
 
 const ROOT = path.dirname(path.dirname(path.dirname(fileURLToPath(import.meta.url))));
 const NODE = process.execPath;
-const mod = await import(path.join(ROOT, 'lib/index.js'));
-const core = await import(path.join(ROOT, 'lib/core.js'));
+// Absolute-path ESM imports must go through fileURLToPath/pathToFileURL: a bare
+// Windows path ("C:\\...\\lib\\index.js") is not a valid import specifier.
+const mod = await import(pathToFileURL(path.join(ROOT, 'lib/index.js')).href);
+const core = await import(pathToFileURL(path.join(ROOT, 'lib/core.js')).href);
 
 const results = [];
 function caseStart(name) { console.log(`\n=== ${name} ===`); }
@@ -128,7 +131,7 @@ await runCase('multi-wave delivery (staff → collect → gate → audit)', asyn
     `AC-2 | malformed row is refused with exit 2 | check: \`"${NODE}" dist/csv2jsonl.mjs fixtures/bad.csv\` | scope: dist | depends: AC-1 | expected: exit=2`,
     `AC-3 | unit suite passes | check: \`"${NODE}" tests/run.mjs\` | scope: tests | depends: AC-1 | expected: exit=0`,
     `AC-4 | throughput improves over the measured baseline | check: \`"${NODE}" bench/bench.mjs\` | probe: \`"${NODE}" --version\` | metric: \`rows_per_sec=([0-9.]+)\` | baseline: delta | tolerance: 0.8 | scope: bench | depends: AC-3 | expected: maximize`,
-    'AC-5 | docs are accurate and calibrated | check: `cat .goal-gate/evidence/docs-verdict.txt` | probe: `grep -q "VERDICT: PASS" .goal-gate/evidence/docs-verdict.txt` | calib: good=verify/good-doc.md bad=verify/bad-doc.md | scope: docs | depends: AC-3 | expected: judged',
+    'AC-5 | docs are accurate and calibrated | check: `' + showFile('.goal-gate/evidence/docs-verdict.txt') + '` | probe: `' + fileContains('.goal-gate/evidence/docs-verdict.txt', 'VERDICT: PASS') + '` | calib: good=verify/good-doc.md bad=verify/bad-doc.md | scope: docs | depends: AC-3 | expected: judged',
   ]);
 
   const start = await call(reg, 'goal_loop_at', { objective: 'ship a CSV-to-JSONL converter with validation, tests, benchmark and docs', maxRounds: 8 }, exec);
@@ -238,8 +241,8 @@ await runCase('adversarial contract (grill catches, fix → GO)', async () => {
   contract(root, [
     'objective: make it good',
     'deliverable: out.txt',
-    `AC-1 | runtime executes the deliverable | check: \`test -f out.txt && "${NODE}" -e ""\` | expected: exit=0`,
-    'AC-2 | known-bad input is refused | check: `test -f NOPE` | expected: exit=1',
+    `AC-1 | runtime executes the deliverable | check: \`${all(fileExists('out.txt'), nodeNoop())}\` | expected: exit=0`,
+    `AC-2 | known-bad input is refused | check: \`${fileExists('NOPE')}\` | expected: exit=1`,
   ]);
   const strong = await call(reg, 'goal_gate_grill', {}, exec);
   assert.equal(strong.verdict, 'ready', JSON.stringify(strong.findings));
@@ -253,12 +256,12 @@ await runCase('budgets, contract-revision, BLOCKED and human reset', async () =>
   mod.apply(reg.ctx, {});
   const root = makeWorkspace('fuses');
   const exec = execFor(root);
-  contract(root, ['objective: fuses', 'AC-1 | fail | check: `test -f NOPE` | expected: exit=0']);
+  contract(root, ['objective: fuses', `AC-1 | fail | check: \`${fileExists('NOPE')}\` | expected: exit=0`]);
   const stamp = await call(reg, 'goal_gate_stamp', { approvedBy: 'case-3', maxRounds: 1 }, exec);
   assert.equal(stamp.maxRounds, 1);
 
   // Edit after stamp -> approval void.
-  contract(root, ['objective: fuses', 'AC-1 | fail | check: `test -f NOPE2` | expected: exit=0']);
+  contract(root, ['objective: fuses', `AC-1 | fail | check: \`${fileExists('NOPE2')}\` | expected: exit=0`]);
   const revised = await reg.listeners[0]({ name: 'update_goal', arguments: { action: 'complete' }, agent: exec.agent }, () => ({ kind: 'allow' }));
   assert.equal(revised.info.code, 'contract-revised');
 
@@ -279,7 +282,7 @@ await runCase('budgets, contract-revision, BLOCKED and human reset', async () =>
 await runCase('concurrent CLI checks (lock + wait)', async () => {
   const root = makeWorkspace('concurrent');
   writeFile(root, 'a.txt', 'x\n');
-  contract(root, ['objective: concurrent', 'AC-1 | slow pass | check: `sleep 0.6; test -f a.txt` | expected: exit=0']);
+  contract(root, ['objective: concurrent', `AC-1 | slow pass | check: \`${sequence(sleep(0.6), fileExists('a.txt'))}\` | expected: exit=0`]);
   const cli = path.join(ROOT, 'bin/gate.mjs');
   const runCli = () => new Promise((resolve) => {
     const child = spawn(NODE, [cli, 'check', '--cwd', root], { stdio: ['ignore', 'pipe', 'pipe'] });
@@ -312,7 +315,7 @@ await runCase('judged evidence: digest binding and calibration', async () => {
   contract(root, [
     'objective: judged evidence',
     'deliverable: artifact.txt',
-    'AC-1 | quality is judged with bound evidence | check: `cat .goal-gate/evidence/verdict.txt` | probe: `grep -q "VERDICT: PASS" .goal-gate/evidence/verdict.txt` | calib: good=good.txt bad=bad.txt | expected: judged',
+    'AC-1 | quality is judged with bound evidence | check: `' + showFile('.goal-gate/evidence/verdict.txt') + '` | probe: `' + fileContains('.goal-gate/evidence/verdict.txt', 'VERDICT: PASS') + '` | calib: good=good.txt bad=bad.txt | expected: judged',
   ]);
   const ok = await call(reg, 'goal_gate_check', {}, exec);
   assert.equal(ok.rc, 0, JSON.stringify(ok.results));
