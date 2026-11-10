@@ -195,12 +195,12 @@ AC-3 | throughput | probe: \`/usr/bin/env node --version\` | neg: \`printf 'm=no
   // 显式 vacuity-waived: 才豁免。
   fs.writeFileSync(path.join(strongWork, '.goal-gate/goal.md'), `objective: build a parser
 deliverable: out.txt
-AC-1 | parser runs on the deliverable | check: \`test -f out.txt\` | expected: exit=0
+AC-1 | parser runs on the deliverable | check: \`test -f out.txt && /usr/bin/env node -e ''\` | expected: exit=0
 AC-2 | bad input is refused with code 1 | check: \`test -f NOPE\` | expected: exit=1
-`);  // no optimize AC here -> no horizon finding; the missing neg: is the only issue
+`);  // 无 optimize AC → 无 horizon finding；缺 neg: 现在只是 low，不该把 ready 变成 needs-work
   const noNeg = await call(reg, 'goal_gate_grill', {}, exec2);
-  assert.equal(noNeg.verdict, 'needs-work');
-  assert.ok(noNeg.findings.some((f) => f.ac === 'AC-1' && f.severity === 'medium' && /falsifiability/.test(f.issue)), 'missing neg: is named');
+  assert.equal(noNeg.verdict, 'ready', 'missing neg: is advisory (low) — it must not block dispatch/stamp');
+  assert.ok(noNeg.findings.some((f) => f.ac === 'AC-1' && f.severity === 'low' && /falsifiability/.test(f.issue)), 'missing neg: is still named');
   assert.ok(!noNeg.findings.some((f) => f.ac === 'AC-2' && /falsifiability/.test(f.issue)), 'error-path AC is exempt');
 
   fs.writeFileSync(path.join(strongWork, '.goal-gate/goal.md'), `vacuity-waived: 该断言由外部硬件在环决定
