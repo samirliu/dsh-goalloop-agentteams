@@ -124,10 +124,10 @@ await runCase('multi-wave delivery (staff → collect → gate → audit)', asyn
     'objective: ship a CSV-to-JSONL converter with validation, tests, benchmark and docs',
     'deliverable: dist/csv2jsonl.mjs',
     'exit: strict',
-    `AC-1 | happy path converts rows | check: \`"${NODE}" dist/csv2jsonl.mjs fixtures/good.csv\` | scope: dist | expected: exit=0`,
+    `AC-1 | happy path converts rows | check: \`"${NODE}" dist/csv2jsonl.mjs fixtures/good.csv\` | neg: \`"${NODE}" dist/csv2jsonl.mjs fixtures/bad.csv >/dev/null 2>&1\` | scope: dist | expected: exit=0`,
     `AC-2 | malformed row is refused with exit 2 | check: \`"${NODE}" dist/csv2jsonl.mjs fixtures/bad.csv\` | scope: dist | depends: AC-1 | expected: exit=2`,
-    `AC-3 | unit suite passes | check: \`"${NODE}" tests/run.mjs\` | scope: tests | depends: AC-1 | expected: exit=0`,
-    `AC-4 | throughput improves over the measured baseline | check: \`"${NODE}" bench/bench.mjs\` | probe: \`"${NODE}" --version\` | metric: \`rows_per_sec=([0-9.]+)\` | baseline: delta | tolerance: 0.8 | scope: bench | depends: AC-3 | expected: maximize`,
+    `AC-3 | unit suite passes | check: \`"${NODE}" tests/run.mjs\` | neg: \`"${NODE}" -e "process.exit(1)"\` | scope: tests | depends: AC-1 | expected: exit=0`,
+    `AC-4 | throughput improves over the measured baseline | check: \`"${NODE}" bench/bench.mjs\` | probe: \`"${NODE}" --version\` | neg: \`"${NODE}" -e "process.exit(1)"\` | metric: \`rows_per_sec=([0-9.]+)\` | baseline: delta | tolerance: 0.8 | scope: bench | depends: AC-3 | expected: maximize`,
     'AC-5 | docs are accurate and calibrated | check: `cat .goal-gate/evidence/docs-verdict.txt` | probe: `grep -q "VERDICT: PASS" .goal-gate/evidence/docs-verdict.txt` | calib: good=verify/good-doc.md bad=verify/bad-doc.md | scope: docs | depends: AC-3 | expected: judged',
   ]);
 
@@ -238,7 +238,7 @@ await runCase('adversarial contract (grill catches, fix → GO)', async () => {
   contract(root, [
     'objective: make it good',
     'deliverable: out.txt',
-    `AC-1 | runtime executes the deliverable | check: \`test -f out.txt && "${NODE}" -e ""\` | expected: exit=0`,
+    `AC-1 | runtime executes the deliverable | check: \`test -f out.txt && "${NODE}" -e ""\` | neg: \`test -f __definitely_absent__\` | expected: exit=0`,
     'AC-2 | known-bad input is refused | check: `test -f NOPE` | expected: exit=1',
   ]);
   const strong = await call(reg, 'goal_gate_grill', {}, exec);

@@ -10,14 +10,22 @@ const warnings = preflightChecks(`objective: x
 AC-1 | 裸 node | check: \`node foo.mjs\` | expected: exit=0
 AC-2 | 相对解释器 | check: \`./tools/verify.sh\` | expected: exit=0
 AC-3 | 永真嫌疑 | check: \`echo done\` | expected: exit=0
-AC-4 | 健康 | check: \`test -f a.txt\` | expected: exit=0
+AC-4 | 健康(带反向对照) | check: \`test -f a.txt\` | neg: \`test -f __definitely_absent__\` | expected: exit=0
+AC-5 | 决定性但无可证伪证据 | check: \`test -f b.txt\` | expected: exit=0
 `);
 const kinds = (id) => warnings.filter((w) => w.id === id).map((w) => w.kind);
 assert.ok(kinds('AC-1').includes('bare-runtime'), 'bare node flagged');
 assert.ok(kinds('AC-2').includes('relative-interpreter'), 'relative interpreter flagged');
 assert.ok(kinds('AC-3').includes('tautology-suspect'), 'echo-only check flagged');
-assert.deepEqual(kinds('AC-4'), [], 'healthy check has no warnings');
-console.log('✓ preflightChecks: bare-runtime / relative-interpreter / tautology-suspect / clean');
+assert.deepEqual(kinds('AC-4'), [], 'healthy check (with neg:) has no warnings');
+assert.ok(kinds('AC-5').includes('vacuity-unproven'), 'decisive AC without neg: is flagged as falsifiability-unproven');
+// 显式豁免:声明 vacuity-waived 后不再要求 neg:(允许但留痕)
+const waived = preflightChecks(`vacuity-waived: 该 AC 由外部硬件在环验证
+objective: y
+AC-1 | 决定性 | check: \`test -f c.txt\` | expected: exit=0
+`);
+assert.ok(!waived.some((w) => w.kind === 'vacuity-unproven'), 'vacuity-waived suppresses the finding');
+console.log('✓ preflightChecks: bare-runtime / relative-interpreter / tautology-suspect / vacuity-unproven / waiver / clean');
 
 // ── 永真式告警(从未失败过的 AC)────────────────────────────────────────
 const acs = [{ id: 'AC-1' }, { id: 'AC-2' }, { id: 'AC-3' }];
@@ -58,8 +66,11 @@ AC-3 | 运行时 | check: \`node run.mjs\` | expected: exit=0
 assert.ok(w5.some((w) => w.kind === 'numeric-without-metric' && w.id === 'AC-1'), 'numeric expected without metric regex flagged');
 assert.ok(!w5.some((w) => w.kind === 'numeric-without-metric' && w.id === 'AC-2'), 'with metric regex: no warning');
 console.log('✓ preflight: numeric-without-metric (fallback extraction is fragile)');
-const w6 = preflightChecks('objective: x\nAC-1 | bad | check: `echo `n`` | expected: exit=0\nAC-2 | 运行时 | check: `node r.mjs` | expected: exit=0');
-assert.ok(w6.some((w) => w.kind === 'ac-line-unparsed'), 'unparseable AC line flagged by preflight');
+// v0.10:拼错字段名是新的"不可解析"主因(旧版静默丢弃)。顺序敏感已消除。
+const w6 = preflightChecks('objective: x\nAC-1 | bad | mtric: `x` | check: `node r.mjs` | expected: exit=0\nAC-2 | 运行时 | check: `node r.mjs` | expected: exit=0');
+assert.ok(w6.some((w) => w.kind === 'ac-line-unparsed'), 'unparseable AC line (typo field) flagged by preflight');
+const w6b = preflightChecks('objective: x\nAC-1 | 顺序自由 | expected: exit=0 | check: `node r.mjs` | neg: `/bin/sh -c "exit 3"`');
+assert.ok(!w6b.some((w) => w.kind === 'ac-line-unparsed'), 'field order is free (no false unparsed)');
 console.log('✓ preflight: ac-line-unparsed (silent drop surfaced)');
 
 // ── bash 驱动门控 CLI(恢复会话的循环兜底入口)──────────────────────────

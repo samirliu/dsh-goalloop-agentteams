@@ -178,16 +178,39 @@ AC-1 | it works | check: \`echo ok\` | expected: exit=0
   const exec2 = { agent: { session: { header: { cwd: strongWork } } } };
   fs.mkdirSync(path.join(strongWork, '.goal-gate'));
   fs.writeFileSync(path.join(strongWork, 'out.txt'), 'x\n');
+  // v0.10 注：字段顺序自由后，这条 AC-3 才第一次真正被解析到——旧实现把它静默丢掉了。
+  // 解析出来立刻暴露"check 只有 printf"是永真式，以及优化目标缺 horizon 护栏。
   fs.writeFileSync(path.join(strongWork, '.goal-gate/goal.md'), `objective: build a parser
 deliverable: out.txt
-AC-1 | parser runs on the deliverable | check: \`test -f out.txt && /usr/bin/env node -e ''\` | expected: exit=0
+horizon-waived: 吞吐量由 CI 计时器独立复核
+AC-1 | parser runs on the deliverable | check: \`test -f out.txt && /usr/bin/env node -e ''\` | neg: \`test -f __definitely_absent__\` | expected: exit=0
 AC-2 | bad input is refused with code 1 | check: \`test -f NOPE\` | expected: exit=1
-AC-3 | throughput | check: \`printf 'm=100\\n'\` | metric: \`m=([0-9.]+)\` | baseline: abs | tolerance: 0.05 | probe: \`true\` | expected: maximize
+AC-3 | throughput | probe: \`/usr/bin/env node --version\` | neg: \`printf 'm=none\\n' | grep -q 'm=[0-9]'\` | metric: \`m=([0-9.]+)\` | baseline: abs | tolerance: 0.05 | check: \`printf 'm=100\\n' | grep 'm='\` | expected: maximize
 `);
   await call(reg, 'goal_gate_baseline', { samples: 2 }, exec2);
   const strong = await call(reg, 'goal_gate_grill', {}, exec2);
   assert.equal(strong.verdict, 'ready', JSON.stringify(strong.findings));
-  console.log('✓ v0.8 grill: weak -> needs-work with named findings; strong -> ready');
+
+  // 可证伪性（v0.10）：决定性 AC 缺 neg: 是 medium（评审面要凭证，不靠猜）；
+  // 显式 vacuity-waived: 才豁免。
+  fs.writeFileSync(path.join(strongWork, '.goal-gate/goal.md'), `objective: build a parser
+deliverable: out.txt
+AC-1 | parser runs on the deliverable | check: \`test -f out.txt\` | expected: exit=0
+AC-2 | bad input is refused with code 1 | check: \`test -f NOPE\` | expected: exit=1
+`);  // no optimize AC here -> no horizon finding; the missing neg: is the only issue
+  const noNeg = await call(reg, 'goal_gate_grill', {}, exec2);
+  assert.equal(noNeg.verdict, 'needs-work');
+  assert.ok(noNeg.findings.some((f) => f.ac === 'AC-1' && f.severity === 'medium' && /falsifiability/.test(f.issue)), 'missing neg: is named');
+  assert.ok(!noNeg.findings.some((f) => f.ac === 'AC-2' && /falsifiability/.test(f.issue)), 'error-path AC is exempt');
+
+  fs.writeFileSync(path.join(strongWork, '.goal-gate/goal.md'), `vacuity-waived: 该断言由外部硬件在环决定
+objective: build a parser
+deliverable: out.txt
+AC-1 | parser runs on the deliverable | check: \`test -f out.txt && /usr/bin/env node -e ''\` | expected: exit=0
+`);
+  const waived = await call(reg, 'goal_gate_grill', {}, exec2);
+  assert.equal(waived.verdict, 'ready', JSON.stringify(waived.findings));
+  console.log('✓ v0.8 grill: weak -> needs-work with named findings; strong -> ready; missing neg: named; vacuity-waived honored');
 }
 
 // ── 6. baseline + spread persistence + data-driven band ──────────────────

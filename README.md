@@ -114,12 +114,13 @@ Runtime skills: **`goal-loop`** (the playbook), **`goal-loop-contract`** (contra
 objective: <one-line goal>
 deliverable: <path to the artifact itself>
 exit: goal-only | strict
-AC-N | <yes/no statement> | check: `<failable command>` | [probe: `<instrument check>`] | [metric: `<regex, one capture group>`] | [baseline: delta|abs] | [timeout: <seconds>] | [tolerance: <relative>] | [sd: `<regex>`] | [var: `<regex>`] | [calib: good=<file> bad=<file>] | [scope: <path[,path...]>] | [depends: AC-x[,AC-y]] | expected: <spec>
+AC-N | <yes/no statement> | check: `<failable command>` | [probe: `<instrument check>`] | [neg: `<negative control: same assertion at a known-bad input, MUST fail>`] | [metric: `<regex, one capture group>`] | [baseline: delta|abs] | [timeout: <seconds>] | [tolerance: <relative>] | [sd: `<regex>`] | [var: `<regex>`] | [calib: good=<file> bad=<file>] | [scope: <path[,path...]>] | [depends: AC-x[,AC-y]] | expected: <spec>
 ```
 
 Specs: `exit=0` | `exit=N` | `<=N` | `>=N` | `<N` | `>N` | `=N` | `!=N` | `maximize` | `minimize` | `judged`.
 
-- **One AC per line, fixed token order.** A line that starts with `AC-N` but does not parse makes the gate refuse the whole contract (`state-error`); a leading `- AC-N` list marker is accepted. Duplicate AC ids, unknown dependencies and dependency cycles are refused.
+- **One AC per line, order-free fields.** Field order does not matter (v0.10 replaced the positional regex); unknown field names, duplicate fields, unquoted commands and missing `check:`/`expected:` are refused — a typo is never silently dropped. A line that starts with `AC-N` but does not parse makes the gate refuse the whole contract (`state-error`); a leading `- AC-N` list marker is accepted. Duplicate AC ids, unknown dependencies and dependency cycles are refused.
+- **`neg:` is the falsifiability proof.** It re-runs the *same assertion* against a deliberately broken input and **must exit non-zero**. The gate runs it (`probe → neg → check`); `neg` exiting 0 means the check cannot fail — a vacuous AC — and the round is `broken`, never `passed`. `GG_NEG=1` is exported to the control so a verifier can switch itself to the bad fixture instead of duplicating the assertion. Decisive ACs (`exit=0`, comparisons, `maximize`/`minimize`) without `neg:` are flagged by `goal_gate_grill` and preflight; declare `vacuity-waived: <reason>` to waive explicitly. Error-path ACs (`exit=N`, N>0) and `judged` ACs (calibrated by `calib:`) are exempt.
 - **`scope:`** is the workspace-relative write scope used by team dispatch (`writeScopes`); **`depends:`** builds the dependency graph (`blockedBy`, `plan.waves`).
 - **`probe:`** runs first for numeric/optimization ACs and must pass; for `judged` it is the judge (exit code = verdict). A failed probe is `broken`, never `passed`.
 - **`metric:`** extracts one capture group from stdout (ANSI stripped); without it the last number is used. Missing required metric = `broken`.

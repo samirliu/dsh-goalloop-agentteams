@@ -196,10 +196,18 @@ console.log('✓ treeDigest: changes on file edit (R7 invalidation works)');
 assert.equal(runGate('AC-1 | x | check: `true` | expected: exit=0', { cwd: dir }).code, 'state-error');
 assert.equal(runGate('objective: x', { cwd: dir }).code, 'state-error');
 console.log('✓ runGate: missing objective/AC -> state-error');
-const unp = runGate('objective: x\nAC-1 | ok | check: `test -d .` | expected: exit=0\nAC-2 | bad | check: `echo `nested`` | expected: exit=0\nAC-3 | ok | check: `test -d .` | expected: exit=0\nAC-4 | ok | check: `test -d .` | expected: exit=0', { cwd: dir });
-assert.equal(unp.code, 'state-error', 'unparseable AC line -> refuse to evaluate (fail-closed)');
-assert.match(unp.reason, /AC-2/, 'reason names the offending line');
-console.log('✓ runGate: unparsed AC line -> state-error (silent drop is forbidden)');
+// v0.10: 字段拼错 / 缺字段 / 命令没加反引号 —— 全部 fail-closed，且点名肇事 AC。
+const unp = runGate('objective: x\nAC-1 | ok | check: `test -d .` | expected: exit=0\nAC-2 | bad | mtric: `x` | check: `test -d .` | expected: exit=0', { cwd: dir });
+assert.equal(unp.code, 'state-error', 'unknown field -> refuse to evaluate (typos are not silently ignored)');
+assert.match(unp.reason, /AC-2.*unknown field/, 'reason names the offending AC and field');
+const noExpected = runGate('objective: x\nAC-1 | ok | check: `test -d .`', { cwd: dir });
+assert.equal(noExpected.code, 'state-error', 'missing expected: is unparseable');
+const bareCmd = runGate('objective: x\nAC-1 | ok | check: test -d . | expected: exit=0', { cwd: dir });
+assert.equal(bareCmd.code, 'state-error', 'unquoted command is rejected (no guessing)');
+// 字段顺序无关：neg/metric/baseline 随意摆放都能解析（旧实现按位置写死,顺序错就整条静默丢弃）
+const anyOrder = runGate('objective: x\nAC-1 | ok | expected: exit=0 | neg: ` /bin/sh -c "exit 3" ` | check: `test -d .`', { cwd: dir });
+assert.equal(anyOrder.code, 'go', JSON.stringify(anyOrder));
+console.log('✓ runGate: unparsed/typo/bare-command AC line -> state-error; field order is free');
 const diag = runGate('objective: diag\nAC-1 | 报错到 stderr | check: `echo reason-on-stderr >&2; exit 1` | expected: exit=0\nAC-2 | ok | check: `test -d .` | expected: exit=0\nAC-3 | ok | check: `test -d .` | expected: exit=0', { cwd: dir });
 assert.match(diag.results[0].stderr ?? '', /reason-on-stderr/, 'failure reason on stderr is captured in results');
 assert.equal(diag.results[0].status, 'failed');

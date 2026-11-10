@@ -52,6 +52,9 @@
 | 43 | 完成声明重复要求 delta 改善 | GO 已经接受当前水位;拦截器重跑同一 optimize AC 时 `baseline: delta` 仍要求再涨一次,一次正常波动就能把已 GO 的目标判 NO-GO | `runGate(mode:'claim')`:声明轮 `delta` 退化为不回退(真恶化仍失败);`goal_gate_check` 保持严格 delta | e2e case1;smoke:claimMode |
 | 44 | grill 对"按序同 scope"和"有 probe+calib 的 judged"误报 | 顺序依赖的两个 AC 共享目录被报 scope 冲突;任何 judged 都带 medium "must bind evidence" → 有 judged 的契约永远无法 ready | scope 冲突仅在**无 depends 顺序**时报告;judged evidence 改为 low 提醒(门控仍强制 digest/calib) | v09:ordered/judged grill |
 | 45 | CLI 并发无锁 | `bin/gate.mjs check/stamp` 绕过账本锁,两个进程并发会互相覆盖 round/baseline;case4 暴露 | CLI check/stamp 走 `withLedgerLock(...,{waitMs:2000})`,busy 明确退出 | examples/plugin-e2e case4 |
+| 46 | **位置敏感文法静默丢 AC** | 字段顺序被大正则写死：把 `neg:` 插到 `metric:` 前面、或把 `probe:` 写到 `tolerance:` 之后，整条 AC 解析失败并被**静默丢弃**。e2e「强契约」里的 AC-3 从未被评估过，正是这条缺陷的活证据 | 改用「statement + 逐段 key/value」解析器：顺序自由、反引号内 `|` 不切段；缺 `check:`/`expected:` 或未加反引号的命令一律拒评 | v10:任意顺序解析 / smoke:顺序自由;v08 强契约 AC-3 首次真正被评估 |
+| 47 | **字段拼写错误被静默忽略** | `mtric:`、`tolerence:` 这类拼写错误不会报错，只是该字段不存在——数值 AC 退化成"最后数字"兜底，噪声带消失，评估面开天窗 | 未知字段名 / 重复字段一律 `state-error` 并点名 AC 与字段 | v10:typo/duplicate 拒评;smoke:unknown field 点名 |
+| 48 | **门控无法证明 check 会红** | 判读面有 `calib:` 夹具校准、普通行有 `probe:`（仪器可用性），但**决定性 AC 没有任何"反向对照"**：check 写成永真式（`true`、恒过断言、逻辑写反）时门控照样 GO。grill 只能凭启发式警告，无法验证 | 文法新增 `neg:`（打到故意做坏输入上的同一条断言，**必须非零退出**）；门控按 `probe → neg → check` 执行，`neg` 退出 0 → `broken`（永真式验收）；注入 `GG_NEG=1` 支持"同一命令 + 开关切坏夹具"；预检/grill 对决定性 AC 未声明 `neg:` 亮牌，`vacuity-waived:` 显式豁免 | v10:pass/broken/127/124/env 五向;grill:missing/exempt/waived 三向;e2e 夹具全部补 neg |
 
 ## 质量演进
 
@@ -69,6 +72,7 @@
 - **评估设计**(v0.8.0):grilling skill + grill 工具、基线与离散度测量、数据驱动噪声带、第三个运行时 skill
 - **团队编排**(v0.9.0):staff 预览/spawn、collect 就绪判定、judge 冷席评审、锁等待、horizon 防线
 - **复杂用例回归**(v0.9.1):多波交付、grill 修复、预算/阻塞/重置、CLI 并发、judged digest;claim-mode delta 与 grill 误报修复
+- **可证伪性**(v0.10):`neg:` 反向对照把"这条 check 能不能红"变成机器可证的事实;顺序无关文法 + 未知字段拒评,堵住"整条 AC 静默消失"的评估面开天窗
 
 ## 运营发现(循环侧,非内核缺陷)
 

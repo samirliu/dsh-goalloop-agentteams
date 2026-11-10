@@ -18,10 +18,15 @@ objective into a contract the gate can enforce. You do not judge completion,
 do not stamp, and do not edit a stamped contract. The stamp is the user's
 signature, applied through `goal_gate_stamp` or `/goal-stamp`.
 
-**Line shape** (field order is fixed; reordering makes the line unparsed, a
-state-error): `AC-N | <statement> | check: <cmd> | [probe: <cmd>] | [metric:
-<regex>] | [baseline: delta|abs] | [timeout: <s>] | [tolerance: <rel>] |
-[sd: <regex>] | [var: <regex>] | [calib: good=<f> bad=<f>] | [scope: <path[,path...]>] | [depends: AC-x[,AC-y]] | expected: <spec>`;
+**Line shape** (v0.10: field order is free — the parser is no longer positional;
+an unknown or misspelled field name is a state-error instead of being silently
+dropped): `AC-N | <statement> | check: <cmd> | [probe: <cmd>] | [neg: <cmd>] |
+[metric: <regex>] | [baseline: delta|abs] | [timeout: <s>] | [tolerance: <rel>] |
+[sd: <regex>] | [var: <regex>] | [calib: good=<f> bad=<f>] |
+[scope: <path[,path...]>] | [depends: AC-x[,AC-y]] | expected: <spec>`;
+`neg: <cmd>` is the falsifiability proof: the same assertion aimed at a
+deliberately broken input, which must exit non-zero (the gate treats a passing
+control as `broken` — the check cannot fail).
 `spec = exit=0 | exit=N | <=N | >=N | <N | >N | =N | !=N | maximize | minimize | judged`.
 
 ## Workflow
@@ -96,6 +101,7 @@ deliverable itself (read-only) or an evidence file there.
 - [ ] No `TODO-REPLACE-ME` placeholder survives (the skeleton is fail-closed until replaced)
 - [ ] No duplicate `AC-N` ids (duplicates are state-error)
 - [ ] Every check can fail; the exact command is named; no tautology
+- [ ] Every decisive AC (`exit=0`, comparisons, `maximize`/`minimize`) carries `neg:` — the same assertion driven at a known-bad input, which MUST exit non-zero; `GG_NEG=1` is exported if the verifier prefers to switch fixtures itself. No honest control? Declare `vacuity-waived: <reason>` instead of leaving it blank.
 - [ ] At least one AC executes the deliverable at runtime; the deliverable is covered
 - [ ] Numeric specs pin `metric:`; metric/max/min ACs have a passing `probe:`
 - [ ] Noisy metrics have `tolerance:` and/or `sd:`/`var:`, plus a measured baseline
