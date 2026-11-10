@@ -6,10 +6,11 @@
 //   node bin/gate.mjs status    [--cwd <dir>]   只读状态(不跑 check、不记账)
 //   node bin/gate.mjs audit     [--cwd <dir>]   声明前审计(只读),exit 0 ok / 1 violations
 //   node bin/gate.mjs stamp     [--cwd <dir>] [--approved-by <who>] [--max-rounds <n>] [--time-budget-minutes <n>] [--restamp]
+//   node bin/gate.mjs approve   [--cwd <dir>] [--by <who>]   hard 车道的人类开门(绑定当前 digest;门控非绿则拒绝)
 //   node bin/gate.mjs reset     [--cwd <dir>] [--new-loop]  人类解除 BLOCKED / 轮换实验时钟
 //   node bin/gate.mjs preflight [--cwd <dir>]   契约预检(裸解释器/永真式/仪器问题)
 import fs from 'node:fs';
-import { runGate, parseContract } from '../lib/core.js';
+import { runGate, parseContract, contractStamp, treeDigest } from '../lib/core.js';
 import {
   contractPath, loopPath, readState, writeState, recordRun, readHistory, readLoop,
   preflightChecks, neverFailedAcs, loopIdleStatus, idleWarning, duplicateEvalNote,
@@ -55,6 +56,29 @@ if (cmd === 'reset') {
 }
 
 const cp = contractPath(root);
+if (cmd === 'approve') {
+  if (!fs.existsSync(cp)) fail(4, { rc: 4, code: 'state-error', reason: 'no contract', contract: cp });
+  const locked = await withLedgerLock(root, async () => {
+    const contractText = fs.readFileSync(cp, 'utf8');
+    const parsed = parseContract(contractText);
+    const hard = (parsed.acs ?? []).filter((a) => a.risk === 'hard').map((a) => a.id);
+    const g = runGate(contractText, { cwd: root, baselines: { ...(readState(root).baselines ?? {}) }, mode: 'claim' });
+    if (g.rc !== 0) return { rc: 2, code: 'gate-red', approved: false, reason: g.reason, hardLanes: hard };
+    if (!hard.length) return { rc: 0, code: 'no-hard-lane', approved: false, hardLanes: [] };
+    const st = readState(root);
+    const stamp = contractStamp(contractText);
+    const digest = treeDigest(root);
+    const at = new Date().toISOString();
+    const prev = (st.approvals ?? []).filter((x) => !(x.stamp === stamp && x.digest === digest));
+    st.approvals = [...prev, { stamp, digest, by: flag('--by') ?? 'user', at }].slice(-20);
+    writeState(root, st);
+    return { rc: 0, code: 'risk-lane-open', approved: true, stamp, digest, by: flag('--by') ?? 'user', at, hardLanes: hard };
+  }, { waitMs: 2000 });
+  if (locked.busy) fail(4, { rc: 4, code: 'busy', reason: 'another goal-gate operation holds the ledger lock; retry after it settles' });
+  out(locked);
+  process.exit(locked.rc ?? 0);
+}
+
 if (cmd === 'stamp') {
   if (!fs.existsSync(cp)) fail(4, { rc: 4, code: 'state-error', reason: 'no contract', contract: cp });
   const locked = await withLedgerLock(root, async () => applyStamp(root, fs.readFileSync(cp, 'utf8'), {

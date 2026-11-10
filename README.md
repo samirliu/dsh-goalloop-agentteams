@@ -114,7 +114,7 @@ Runtime skills: **`goal-loop`** (the playbook), **`goal-loop-contract`** (contra
 objective: <one-line goal>
 deliverable: <path to the artifact itself>
 exit: goal-only | strict
-AC-N | <yes/no statement> | check: `<failable command>` | [probe: `<instrument check>`] | [neg: `<negative control: same assertion at a known-bad input, MUST fail>`] | [metric: `<regex, one capture group>`] | [baseline: delta|abs] | [timeout: <seconds>] | [tolerance: <relative>] | [sd: `<regex>`] | [var: `<regex>`] | [calib: good=<file> bad=<file>] | [scope: <path[,path...]>] | [depends: AC-x[,AC-y]] | expected: <spec>
+AC-N | <yes/no statement> | check: `<failable command>` | [probe: `<instrument check>`] | [neg: `<negative control: same assertion at a known-bad input, MUST fail>`] | [metric: `<regex, one capture group>`] | [baseline: delta|abs] | [timeout: <seconds>] | [tolerance: <relative>] | [sd: `<regex>`] | [var: `<regex>`] | [calib: good=<file> bad=<file>] | [risk: low|wide|hard] | [scope: <path[,path...]>] | [depends: AC-x[,AC-y]] | expected: <spec>
 ```
 
 Specs: `exit=0` | `exit=N` | `<=N` | `>=N` | `<N` | `>N` | `=N` | `!=N` | `maximize` | `minimize` | `judged`.
@@ -127,6 +127,7 @@ Specs: `exit=0` | `exit=N` | `<=N` | `>=N` | `<N` | `>N` | `=N` | `!=N` | `maxim
 - **`maximize` / `minimize`** compare against the previous **accepted** value; the first run establishes the water mark and passes. `baseline: delta` demands strict improvement, `abs` (default) forbids regression. `tolerance:` is a relative noise band; `sd:`/`var:` widen it to `max(2*spread/|prev|, tolerance)` (`var:` is square-rooted); declared-but-unmatched spread is `broken`.
 - **`judged`** requires the verdict to carry `artifact: <path>` and `digest: sha256:<64hex>` (recomputed by the gate). Unbound, stale or unreadable evidence is `broken`. With `calib: good=<f> bad=<f>` the verdict must also carry `calib-good: PASS` and `calib-bad: FAIL`, and both fixtures must exist.
 - **Evidence produced by checks** (renders, logs, judge inputs) belongs under `.goal-gate/evidence/` — it is excluded from the digest. Checks that write anywhere else in the workspace fail the round as `check-mutated-tree`.
+- **`risk:` is the blast-radius lane (Art3 §8 — gate on blast radius, not confidence).** `low` (default) = reversible and contained, normal gating. `wide` = reversible but shared, and `hard` = hard to reverse (migrations, deletions, production data, money). Both stricter lanes demand a falsifiability proof on **every** AC (`neg:` for decisive ACs, `calib:` for judged ones) — a wider blast radius never buys a laxer check. A `hard` lane **does not open** on a green gate: completion claims are denied with `risk-lane-closed` until a human records `goal_gate_approve` / `/goal-approve`, and that approval is bound to the contract stamp **and the current tree digest** — edit the artifact and it lapses. It is a closed lane, not a higher threshold.
 - **`deliverable:`** is advisory in the gate but drives preflight: a contract with no check touching the deliverable and no runtime AC gets `deliverable-unverified` / `no-runtime-ac` warnings before a round is burned.
 
 ## Gate semantics / 门控语义

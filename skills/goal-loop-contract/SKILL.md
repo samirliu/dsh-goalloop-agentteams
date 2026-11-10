@@ -101,6 +101,7 @@ deliverable itself (read-only) or an evidence file there.
 - [ ] No `TODO-REPLACE-ME` placeholder survives (the skeleton is fail-closed until replaced)
 - [ ] No duplicate `AC-N` ids (duplicates are state-error)
 - [ ] Every check can fail; the exact command is named; no tautology
+- [ ] Blast radius classified: `risk:` on every AC that is not plainly reversible-and-contained (`wide` for shared utilities/schema additions, `hard` for migrations/deletions/production data/money). A `hard` AC means completion needs a human `/goal-approve` on the exact artifact — plan for that, do not treat it as a scoring threshold.
 - [ ] Every decisive AC (`exit=0`, comparisons, `maximize`/`minimize`) carries `neg:` — the same assertion driven at a known-bad input, which MUST exit non-zero; `GG_NEG=1` is exported if the verifier prefers to switch fixtures itself. No honest control? Declare `vacuity-waived: <reason>` instead of leaving it blank.
 - [ ] At least one AC executes the deliverable at runtime; the deliverable is covered
 - [ ] Numeric specs pin `metric:`; metric/max/min ACs have a passing `probe:`

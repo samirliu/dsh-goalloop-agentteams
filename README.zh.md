@@ -98,13 +98,14 @@ dsh plugin --profile <profile> add github:samirliu/dsh-goalloop-agentteams
 objective: <一句话目标>
 deliverable: <交付物本体路径>
 exit: goal-only | strict
-AC-N | <yes/no 判定语句> | check: `<可失败命令>` | [probe: `<仪器检查>`] | [neg: `<反向对照:同一条断言打到坏输入,必须失败>`] | [metric: `<正则，一个捕获组>`] | [baseline: delta|abs] | [timeout: <秒>] | [tolerance: <相对容差>] | [sd: `<正则>`] | [var: `<正则>`] | [calib: good=<文件> bad=<文件>] | [scope: <路径[,路径...]>] | [depends: AC-x[,AC-y]] | expected: <规格>
+AC-N | <yes/no 判定语句> | check: `<可失败命令>` | [probe: `<仪器检查>`] | [neg: `<反向对照:同一条断言打到坏输入,必须失败>`] | [metric: `<正则，一个捕获组>`] | [baseline: delta|abs] | [timeout: <秒>] | [tolerance: <相对容差>] | [sd: `<正则>`] | [var: `<正则>`] | [calib: good=<文件> bad=<文件>] | [risk: low|wide|hard] | [scope: <路径[,路径...]>] | [depends: AC-x[,AC-y]] | expected: <规格>
 ```
 
 规格：`exit=0` | `exit=N` | `<=N` | `>=N` | `<N` | `>N` | `=N` | `!=N` | `maximize` | `minimize` | `judged`。
 
 - **一条 AC 一行，字段顺序自由（v0.10）。** 文法不再按位置匹配；未知字段名、重复字段、未加反引号的命令、缺 `check:`/`expected:` 一律拒评——拼错的字段不会被静默丢弃。以 `AC-N` 开头却解析失败的行会让门控拒评整份契约（`state-error`）；行首 markdown 列表符 `- ` 兼容。重复 AC 编号、未知依赖、依赖环都拒评。
 - **`neg:` 是可证伪性凭证（v0.10）。** 把**同一条断言**打到故意做坏的输入上，**必须非零退出**。门控按 `probe → neg → check` 执行；`neg` 退出 0 说明这条 check 根本不会红（永真式验收），本轮判 `broken`，绝不 `passed`。`GG_NEG=1` 会注入给对照命令，验证脚本可据此切到坏夹具而不必复制断言。决定性 AC（`exit=0`、比较式、`maximize`/`minimize`）没有 `neg:` 时，`goal_gate_grill` 与预检会亮牌；写不出来就显式声明 `vacuity-waived: <理由>`。错误路径 AC（`exit=N`，N>0）与 `judged`（由 `calib:` 校准）豁免。
+- **`risk:` 是爆炸半径车道（Art3 §8：按爆炸半径开门，不按置信度）。** `low`（缺省）= 可逆且受限，正常门控；`wide` = 可逆但面广；`hard` = 难以逆转（迁移、删除、写生产数据、动钱）。后两条加严：**每条** AC 都要有可证伪证据（决定性 AC 要 `neg:`，judged 要 `calib:`）——面广不换更松的检查。`hard` 车道**不开门**：门控全绿也拦完成声明（`risk-lane-closed`），直到人类用 `goal_gate_approve` / `/goal-approve` 批准；批准绑定契约盖章**与当前产物摘要**，产物一改就失效。这是车道关闭，不是阈值更高。
 - **`scope:`** 是团队派工用的工作区写范围（`writeScopes`）；**`depends:`** 建依赖图（`blockedBy`、`plan.waves`）。
 - **`probe:`** 对数值/优化类 AC 先跑且必须通过；对 `judged` 它就是判官（退出码 = 结论）。probe 失败是 `broken`，绝不当 passed。
 - **`metric:`** 从 stdout 提取一个捕获组（先剥 ANSI）；不写则取最后一个数字。取不到必要指标 = `broken`。

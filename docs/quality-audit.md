@@ -46,7 +46,17 @@
 | 10 | 度量与腐朽审计 | 6 → **7** | 每个 AC 现在带 `negExit`，可看出"这条 AC 是否被真正证伪过"；主动的腐朽审计（恒绿 AC 统计）仍未做 |
 | — | 顺带修复 | — | 解析器改为顺序无关（缺陷 #46）与未知字段拒评（#47）——dogfooding 时发现"强契约"里有一条 AC 从未被评估过 |
 
-**当前合计：7.9 / 10**（下轮目标 8.5：爆炸半径车道 + 恒绿 AC 审计）
+**合计：7.9 / 10**
+
+## R2 落地后（v0.11.0）
+
+| # | 维度 | 分数 | 变化依据 |
+|---|---|---|---|
+| 8 | 爆炸半径分级 | 4 → **9** | `risk: low|wide|hard`；车道进 gate 输出与账本；wide/hard 要求**每条** AC 有可证伪证据；`hard` 车道不开门——全绿也拦完成声明，需人类按 `stamp+digest` 批准（`goal_gate_approve` / `/goal-approve` / CLI），产物一改即失效。回归：`test/v11_test.mjs` 6 组 |
+| 10 | 度量与腐朽审计 | 7 → **9** | 每个 AC 带 `ms`、history 记 `slowestAc/slowestMs`、audit 报 `dominant-ac-cost`；恒绿 AC 拆成 `possibly-tautological`（无 neg:）与 `green-but-falsifiable`（有 neg:），噪音不再淹没信号；`hard-lane-unapproved` 提前亮牌 |
+| — | 顺带发现 | — | 缺陷 #50：`unverifiable` 在正常路径已不可达 → "≤1/3 允许 GO" 是死代码；本轮不依赖它，改为可达的车道加严，并记账待处置 |
+
+**合计：8.6 / 10**（下轮目标 9.0：学习边——复发失败升格为持久约束）
 
 ## 改进路线（按杠杆排序）
 
