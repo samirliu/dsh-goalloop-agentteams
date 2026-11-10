@@ -4,12 +4,18 @@
 
 契约先行；门控**自己重跑每条 check**（零模型信任）；人类盖章冻结"done 的定义"；verdict 绑定内容摘要；假完成在 `update_goal` / 团队任务 / 任务板三个完成面被 `tools/pre-execute` 硬拦。goal-loop 的便携 team 文件协议与双账本**故意不移植**——原生 Agent Teams 更强。
 
-**v0.9.1 — Agent Teams 编排：编队、收集、评审**（相对 0.6.2）：
+**v0.10.0 — 判定可信度加固**（相对 0.6.2）：
 
+- **账本可信，否则停下**：`state.json` 用 HMAC 签名，密钥存放在**工作区之外**；伪造、改写、截断或删除账本一律 `state-error`（exit 4），绝不静默重建。被评估的 agent 再也改不掉水位 / BLOCKED 闩锁 / 批准记录。
+- **锁保护的是临界区，不是整个工具面**：只读工具和普通工作不取锁；只有完成声明才取，锁里带 pid + 每次获取的独立 token，只有仍持有者能释放，持有进程已死则立即回收；`gate.mjs unlock` 是人工恢复路径。
+- **没有白拿的 PASS**：`maximize`/`minimize` 首轮只记录水位（判 `unverifiable`）；指标身份 = AC 编号 + **语句**哈希——改仪器不丢历史，改语句才换序列。
+- **判官由门控自己跑**：声明 `calib:` 时 `probe` 必须含 `{file}` 占位符，门控拿它分别对已知好夹具（必须退出 0）与已知坏夹具（必须退出非 0）各跑一次。`score:` 只认**判官**打印的那行；证据必须解析到被评估的工作区内。
+- **退出码说真话**：`check` 的退出码为 0 GO / 2 NO-GO / 3 BLOCKED / 4 state-error / 5 busy——"门控根本没跑起来"不再被当成"结论是失败"。
+- **拿不到工作区就 fail-closed**：没有 `cwd` 就不判定（原先回退 `process.cwd()`，那里没有契约，于是每条声明都放行）。`goal_gate_stamp` 默认走人批。
 - **BROKEN 是决定性的**：仪器缺失（rc 127）、probe 失败、取数失败、`sd:`/`var:` 匹配不到、judged 证据失联/过期、判官缺失、calib 缺陷一律 `broken` → NO-GO；不再能藏在"≤1/3 unverifiable"的放行带里。
 - **R3 批准盖章**：`goal_gate_stamp` / `/goal-stamp` 冻结契约与预算；之后任何契约编辑都会让完成声明以 `contract-revised` 被拒，直到显式重盖章。
 - **内容绑定摘要**：同尺寸改动也会改变摘要；检查期间改工作区判 `check-mutated-tree`；`dist/build/out` 不再被静默排除。
-- **目标面**：`minimize`、`!=`、数据驱动的 `sd:`/`var:` 噪声带、首轮建立水位、逐轮 `efficiency` 与策略归因。
+- **目标面**：`minimize`、`!=`、数据驱动的 `sd:`/`var:` 噪声带、首轮只记录水位（判 `unverifiable`，不白拿 PASS）、逐轮 `efficiency` 与策略归因。
 - **预算是保险丝**：轮次/墙钟预算在盖章时绑定，非 GO 的完成声明到点即拒；`/goal-reset --new-loop` 是人类恢复入口。
 - **DSH 原生**：拦截 `task_board_manage` 的 `move-done`；`dispatch:true` 与 `goal_gate_dispatch` 为 Team Lead 创建真实的原生 Agent Teams 任务；只读 `goal_gate_status` / `goal_gate_audit`。
 - **复杂用例修复（v0.9.1）**：完成声明轮 `delta` 不再要求二次改善；grill 不再误报按序同 scope / 已绑定证据的 judged；CLI 也走账本锁；`examples/plugin-e2e` 全部覆盖。
@@ -43,7 +49,32 @@ dsh plugin --profile <profile> add github:samirliu/dsh-goalloop-agentteams
 
 包内声明了 `dsh.bundle` 与 `cordis.patch.yml`，`dsh plugin add` 会把 `goal-gate` 行挂进组合；安装后重启 profile（host 代码、命令与 skill 在启动时组装）。
 
+⚠️ **别装 0.6.x**：v0.6.x 早于 DSH 0.2.1-rc.2 的工具注册契约（只声明 schema、没有 `render`），装上后每个**成功**的工具调用都会失败，而 `--dump-config` 看不出区别。从 checkout 或 ≥ v0.7.0 的版本安装。
+
 ⚠️ **入口契约**：入口必须导出 `name`（等于 `cordis.patch.yml` 的 id `goal-gate`）以及 `inject`、`apply`；缺 `name` 会被 Host 静默跳过。`link:` 安装时 `@deepseek-ai/dsh-tools` 的解析可能与注册表安装不同，入口先试裸包名再用同形 shim 兜底，两条路径都有测试覆盖。
+
+## 平台支持
+
+门控要自己重跑每条 AC 的 `check`，所以**解释器由门控自己决定**，并且显式写在结论里，不做静默平台假设：
+
+| 平台 | 默认解释器 | 覆盖方式 |
+|---|---|---|
+| Linux / macOS | `/bin/sh -c` | `config.shell` / `GOAL_GATE_SHELL` |
+| Windows | `%COMSPEC%` → `cmd.exe /d /s /c` | `config.shell` / `GOAL_GATE_SHELL`，填 `sh.exe` / `bash.exe` / `pwsh.exe` / `cmd.exe` 的绝对路径 |
+
+- 每轮结论里的 `shell` 字段说明"这条 check 是被谁执行的"（`goal_gate_check`、`goal_gate_status`、`bin/gate.mjs check` 都会带）。
+- 解释器不存在时判 `broken` 并直接点名 *"gate shell not found …"*（配置问题，不是产物不合格）——不会再退化成一串哑巴 `failed`。
+- Windows 上用 `cmd.exe` 跑 POSIX 写法（`test`、`grep`、`&&`、`$VAR`）时，`preflight` 会报 `posix-syntax-on-cmd`，在烧轮次之前提醒你。
+- Windows 上要么把 check 写成 cmd/pwsh 语法，要么把门控指到 POSIX shell：
+
+```yaml
+- id: goal-gate
+  name: dsh-goalloop-agentteams
+  config:
+    shell: 'C:\Program Files\Git\usr\bin\sh.exe'
+```
+
+优先级：`bin/gate.mjs --shell` / 插件 `config.shell` > 环境变量 `GOAL_GATE_SHELL` > 平台默认。
 
 ## 插件配置
 
@@ -53,9 +84,10 @@ dsh plugin --profile <profile> add github:samirliu/dsh-goalloop-agentteams
 |---|---|---|
 | `maxRounds` | `8` | 新循环默认轮次预算 |
 | `requireStamp` | `false` | 未盖章时拒绝完成声明 |
-| `requireHumanApproval` | `false` | `goal_gate_stamp` 走 DSH approval seam（`ask`） |
+| `requireHumanApproval` | `true` | `goal_gate_stamp` 走 DSH approval seam（`ask`）；headless 循环请显式设 `false` |
 | `intercept` | `true` | 挂载 `tools/pre-execute` 完成声明拦截 |
 | `registerSkills` | `true` | 注册 `goal-loop` / `goal-loop-contract` 运行时 skill |
+| `shell` | 平台默认 | 执行 AC `check`/`probe` 的解释器（见「平台支持」） |
 
 ## 快速开始
 
@@ -88,7 +120,7 @@ dsh plugin --profile <profile> add github:samirliu/dsh-goalloop-agentteams
 | `goal_gate_judge` | 为 judged AC 建冷席评审任务（fresh reviewer、digest/calib 简报） | `kind`、`dispatched`、`failed`、`skippedExisting`、`reason`、`suggestions` |
 | `goal_gate_doctor` | 自检工具/参数 schema/命令/skill/Teams/契约 | `ok`、`version`、`tools`、`commands`、`skills`、`agentTeams`、`contract`、`notes` |
 
-命令：`/goal-loop-at <objective>`、`/goal-gate`（状态）、`/goal-stamp [--restamp] [--max-rounds=N] [--time-budget-minutes=N] [approvedBy]`、`/goal-audit`、`/goal-grill`、`/goal-baseline [samples]`、`/goal-collect`、`/goal-judge [reviewer]`、`/goal-doctor`、`/goal-reset [--new-loop] [reason]`。
+命令：`/goal-loop-at <objective> [--no-grill]`、`/goal-gate`（状态）、`/goal-stamp [--restamp] [--max-rounds=N] [--time-budget-minutes=N] [approvedBy]`、`/goal-audit`、`/goal-grill`、`/goal-baseline [samples]`、`/goal-collect`、`/goal-judge [reviewer]`、`/goal-doctor`、`/goal-reset [--new-loop] [reason]`。
 
 运行时 skill：**`goal-loop`**（主 playbook）、**`goal-loop-contract`**（契约 forge / 盖章清单）与 **`goal-loop-grill`**（对抗式 eval/metric 设计）。通过 `ctx.skills.register` 注册进模型 skill 目录，无需文件系统安装。
 
@@ -109,8 +141,8 @@ AC-N | <yes/no 判定语句> | check: `<可失败命令>` | [probe: `<仪器检�
 - **`scope:`** 是团队派工用的工作区写范围（`writeScopes`）；**`depends:`** 建依赖图（`blockedBy`、`plan.waves`）。
 - **`probe:`** 对数值/优化类 AC 先跑且必须通过；对 `judged` 它就是判官（退出码 = 结论）。probe 失败是 `broken`，绝不当 passed。
 - **`metric:`** 从 stdout 提取一个捕获组（先剥 ANSI）；不写则取最后一个数字。取不到必要指标 = `broken`。
-- **`maximize` / `minimize`** 与上一次**被接受**的值比较；首轮建立水位并 PASS。普通轮 `baseline: delta` 要求严格改善，`abs`（缺省）禁止回退；**完成声明时** `delta` 退化为不回退——上一次 GO 已接受当前水位，重复测量不需要再涨一次（真实恶化仍失败）。`tolerance:` 是相对噪声带；`sd:`/`var:` 把带扩大到 `max(2*spread/|prev|, tolerance)`（`var:` 开方）；声明了却匹配不到 = `broken`。
-- **`judged`** 结论必须含 `artifact: <路径>` 与 `digest: sha256:<64hex>`（门控重算）；无绑定、过期、读不到都判 `broken`。声明 `calib: good=<f> bad=<f>` 时还须含 `calib-good: PASS` 与 `calib-bad: FAIL`，且两个夹具必须存在。
+- **`maximize` / `minimize`** 与上一次**被接受**的值比较；首轮只记录水位（判 `unverifiable`，不给结论——新的指标序列不该白拿一轮 PASS）。普通轮 `baseline: delta` 要求严格改善，`abs`（缺省）禁止回退；**完成声明时** `delta` 退化为不回退——上一次 GO 已接受当前水位，重复测量不需要再涨一次（真实恶化仍失败）。`tolerance:` 是相对噪声带；`sd:`/`var:` 把带扩大到 `max(2*spread/|prev|, tolerance)`（`var:` 开方）；声明了却匹配不到 = `broken`。指标身份 = AC 编号 + **语句**哈希：改仪器不丢历史，改语句才换序列。
+- **`judged`** 结论必须含 `artifact: <路径>` 与 `digest: sha256:<64hex>`（门控重算），且证据文件必须落在被评估的工作区内；无绑定、过期、读不到都判 `broken`。声明 `calib: good=<f> bad=<f>` 时，`probe` 必须含 `{file}` 占位符，门控会拿它分别对两个夹具各跑一次：好夹具必须退出 0、坏夹具必须退出非 0。评审自述的 `calib-good: PASS` / `calib-bad: FAIL` 不再采信。
 - **检查产生的证据**（渲染、日志、判官输入）放 `.goal-gate/evidence/`——该目录不进摘要。检查写了工作区其它位置 → 本轮判 `check-mutated-tree`。
 - **`deliverable:`** 门控不强制，但驱动预检：没有任何 check 碰交付物、也没有运行时 AC，会在烧轮前亮 `deliverable-unverified` / `no-runtime-ac`。
 
@@ -143,7 +175,7 @@ AC-N | <yes/no 判定语句> | check: `<可失败命令>` | [probe: `<仪器检�
 
 - **R3 盖章**：`goal_gate_stamp({approvedBy, maxRounds?, timeBudgetMinutes?, restamp?, note?})` 把批准写进 `state.json`，可绑定预算。契约编辑会改变摘要；完成声明以 `contract-revised` 被拒，直到 `restamp:true`（或 `/goal-stamp`）。
 - **`requireStamp: true`**：未盖章禁止完成声明（默认 `false`；盖章仍是 `/goal-loop-at` 协议推荐动作）。
-- **`requireHumanApproval: true`**：`goal_gate_stamp` 本身走 DSH approval seam（`tools/pre-execute` 返回 `{kind:'ask'}`）；`never` 策略下自动 fail-closed。默认 `false`，headless 循环可用。
+- **`requireHumanApproval`**（默认 `true`）：`goal_gate_stamp` 本身走 DSH approval seam（`tools/pre-execute` 返回 `{kind:'ask'}`）——盖章冻结的是"什么叫做完"，这必须是人点的；`never` 策略下自动 fail-closed。headless 循环请显式设 `false`。
 - **轮次预算**（`maxRounds`，默认 8）与**墙钟预算**（`timeBudgetMinutes`）是保险丝：非 GO 的完成声明到点被拒（`rounds-exhausted` / `time-budget`）。墙钟到点**不没收已经 GO 的交付**。
 - **假完成棘轮**：`update_goal(complete)` 被拒 = 产物没完成，去修，不要重复声明。两次假完成 → `BLOCKED`，一切声明冻结。`/goal-reset [--new-loop]` 是人类唯一恢复入口（故意没有模型可调用的 reset 工具）。
 - **循环身份**：第二次 `goal_loop_at` 目标不同会拒（`objective-drift`）——改目标 = 改 done 的定义，必须编辑 + 重新批准，或换工作区/新循环。
@@ -183,6 +215,17 @@ AC-N | <yes/no 判定语句> | check: `<可失败命令>` | [probe: `<仪器检�
 
 `goal_gate_grill` 是对契约的只读攻击（来自 goal-loop 的 grilling/contract-forge 纪律）：返回 `findings[severity, ac, issue, suggestion]`、还需要人回答的 `questions`、每个 optimize AC 的 `metricDesign` 建议，以及 `goodhart` 刷分路径。`verdict: ready` 要求没有 high/medium findings。`goal-loop-grill` skill 教模型跑 interview frontier：什么叫完成、便宜改动能不能刷分、哪个 known-bad 证明拒绝、基线与离散度量过没有、判官必须绑定什么证据。修完 → 重 grill → `goal_gate_baseline` → 盖章。
 
+### 开循环自动 grill
+
+`goal_loop_at`（或 `/goal-loop-at <objective>`）会自动跑同一套 `grillContract`：只读、不烧轮、随循环启动一起发生。结论落在返回值的 `grill` 字段，并排进 `nextActions` 的第一条可执行项——循环不会以"那现在干嘛"开头，只会以 verdict 开头。
+
+- **不拦开循环本身**：明知设计还不够好也可以先开工，回复里会明说。
+- **拦派工**：grill 结论不是 `ready` 时，`goal_loop_at({dispatch:true})` 与 `goal_gate_staff({spawn:true})` 拒绝创建队友，返回 `reason: "grill verdict=needs-work: …"` 加上拦路的 `findings` 与 `suggestions`。`TODO-REPLACE-ME` 占位的骨架契约正是这一条要拦的东西。
+- **不拦盖章**：`goal_gate_stamp` 也会 grill，只把 `grill` 作为告警回传——批准权在人，不在启发式。
+- **逃生门**：工具传 `grill:false`；命令传 `--no-grill` / `--grill=false`。未登记的拼写（如 `--grilling`）不是开关，只会留在目标文本里。
+
+严重度与确定性 preflight 对齐，所以 grill 是设计顾问而不是第二遍 lint："什么都没执行"只是 `low`（preflight 已经在报），`high` 留给真正的设计漏洞（"deliverable 没有任何 check 碰过"）。tautology 探针、缺噪声带、单边 judged、scope 重叠 仍是 `high`/`medium`。
+
 ## 只读状态与审计
 
 - `goal_gate_status({includeHistory?})` / `/goal-gate`：契约/盖章/批准、loop、计数器、当前摘要与已绑定摘要、轮次/墙钟预算、idle 状态、最近历史。**不跑 check、不烧轮**。
@@ -195,13 +238,16 @@ AC-N | <yes/no 判定语句> | check: `<可失败命令>` | [probe: `<仪器检�
 恢复会话可能没有插件工具表。同一本账、同一个门控可从任何 shell 驱动（node 用绝对路径，**绝不裸写 `node`**）：
 
 ```sh
-<abs-node> <plugin>/bin/gate.mjs check   --cwd <工作区> [--strategy <s>] [--note <n>]
+<abs-node> <plugin>/bin/gate.mjs check   --cwd <工作区> [--strategy <s>] [--note <n>] [--shell <shell>]
 <abs-node> <plugin>/bin/gate.mjs status  --cwd <工作区>
 <abs-node> <plugin>/bin/gate.mjs audit   --cwd <工作区>
 <abs-node> <plugin>/bin/gate.mjs stamp   --cwd <工作区> [--approved-by <who>] [--max-rounds <n>] [--time-budget-minutes <n>] [--restamp]
 <abs-node> <plugin>/bin/gate.mjs reset   --cwd <工作区> [--new-loop]
-<abs-node> <plugin>/bin/gate.mjs preflight --cwd <工作区>
+<abs-node> <plugin>/bin/gate.mjs unlock  --cwd <工作区>
+<abs-node> <plugin>/bin/gate.mjs preflight --cwd <工作区> [--shell <shell>]
 ```
+
+`check` 的退出码为 `0` GO / `2` NO-GO / `3` BLOCKED / `4` state-error / `5` busy——"门控根本没跑起来"不等于"结论是失败"。`unlock` 强制回收卡住的账本锁（持有进程已死或失联）；它只清锁文件、不碰账本，账本由签名校验保护。
 
 ## DSH 宿主契约（0.2.1-rc.2 实测）
 
@@ -211,6 +257,8 @@ AC-N | <yes/no 判定语句> | check: `<可失败命令>` | [probe: `<仪器检�
 - Skill 用 `ctx.skills.register({name, description, content, source, …})` 内存注册；DSH 不扫描包的 `skills/` 目录。
 - 工作区根来自 `exec.agent.session.header.cwd`；没有 `exec.session` / `exec.cwd`。
 - 原生 Agent Teams 服务是 `ctx.get('agentTeams')`（可选，不能 `inject`）；任务是 `team_task_*` 工具，不是 `agent_teams_*`。
+- 门控自己开子进程跑 check：POSIX 用 `/bin/sh -c`，Windows 用 `%COMSPEC%`（见「平台支持」）。`app.asar` 里的模块回退用 `pathToFileURL` 加载——ESM 在 Windows 上不接受裸 `C:\…` 路径（`ERR_UNSUPPORTED_ESM_URL_SCHEME`）。
+- 0.2.1-rc.2 的 Agent 上**没有** `agent.followup(...)`；`/goal-loop-at` 因此把协议放在命令结果里返回，而不是注入对话。
 
 实测证据与探针方法见 `docs/platform-contract.md`。
 
@@ -223,7 +271,7 @@ AC-N | <yes/no 判定语句> | check: `<可失败命令>` | [probe: `<仪器检�
 | digest 绑定 verdict（R7） | 内容哈希 `treeDigest` + `check-mutated-tree` + 声明绑定摘要 |
 | R1 假完成计数 → BLOCKED | `falseCompleteRule` + `/goal-reset`（人类） |
 | 目标水位 / `sd:`/`var:` | `maximize`/`minimize` 基线 + tolerance/spread 噪声带 + `efficiency` |
-| judged 判读席 + `calib:` | `artifact`+sha256 绑定 + `calib-good`/`calib-bad` 评级 |
+| judged 判读席 + `calib:` | artifact+sha256 绑定（限工作区内）+ 门控自跑 good/bad 夹具校准 |
 | `/goal-loop-at` 触发 + 循环预算 | `goal_loop_at` / `/goal-loop-at` + `loop.json` + 轮次/墙钟保险丝 |
 | `goal_audit.sh` 账本审计 | `goal_gate_audit` / `/goal-audit` |
 | crew/work-plan/roster/inbox/Teams 后端 | **丢弃**——原生 Agent Teams + 任务板 + `goal_gate_dispatch` |
@@ -242,6 +290,12 @@ AC-N | <yes/no 判定语句> | check: `<可失败命令>` | [probe: `<仪器检�
 
 ```sh
 <abs-node> test/run-local.mjs
+```
+
+套件本身平台中立：Windows（`cmd.exe` 门控）与 POSIX（`/bin/sh`）都能跑；换 `GOAL_GATE_SHELL` 就能用同一批文件验证"Windows 上的 POSIX shell"（Git Bash / WSL）：
+
+```sh
+$env:GOAL_GATE_SHELL='C:\Program Files\Git\usr\bin\sh.exe'; <abs-node> test/run-local.mjs
 ```
 
 真实 `@deepseek-ai/dsh-tools` 在 Host 内、Host 外不可 import；入口回退到会编译参数 schema 的 shim。测试**绝不**把 `node_modules/@deepseek-ai/dsh-tools` shim 写进包目录：`link:` 安装时它会赢得模块解析，Host 注册到未编译的参数 schema（provider 报 `type: null`）。套件覆盖判定内核、接线（全部工具/命令/skill、provider 可见参数 schema）、账本/审计/盖章、红队防线、纯度、无 commands 服务的装载安全，v0.7 面（保险丝、任务板声明、派工、效率、reset），v0.8 面（scope/depends 分波、幂等/阻塞派工、团队快照/nextActions、grilling、基线/离散度、账本锁），以及 v0.9 面（编队预览/spawn、收集团队完成度、评审任务、锁等待、horizon 防线）。真实宿主注册契约已对 0.2.1-rc.2 解包产物验证；见 `docs/platform-contract.md`。

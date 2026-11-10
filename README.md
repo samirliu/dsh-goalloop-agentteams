@@ -4,12 +4,18 @@
 
 Contract-first acceptance criteria, a gate that **re-runs every check itself** (zero model trust), a human approval stamp that freezes done, verdicts bound to a content digest, and a hard deny on false completion at `update_goal` / team-task / task-board surfaces via `tools/pre-execute`. The portable team-file protocol and dual-ledger bookkeeping are deliberately *not* ported — native Agent Teams is strictly stronger.
 
-**v0.9.1 — Agent Teams orchestration: staff, collect, judge.** Highlights since 0.6.2:
+**v0.10.0 — judgment integrity hardening.** Highlights since 0.6.2:
 
+- **Trust the ledger, or stop.** `state.json` is HMAC-signed with a key kept *outside* the workspace; a forged, edited, truncated or deleted ledger is `state-error` (exit 4), never silently rebuilt. The watermark/BLOCKED latch/approval can no longer be edited away by the agent under evaluation.
+- **The lock protects the critical section, not the whole tool surface.** Read-only tools and ordinary work never take it; it is acquired only for completion claims, carries a pid + per-acquisition token, releases only if it still owns the lock, reclaims immediately when the holder process is dead, and `gate.mjs unlock` is the human recovery path.
+- **No free PASS.** The first measurement of a `maximize`/`minimize` series only records the watermark (verdict `unverifiable`); the metric identity is the AC id plus a hash of the **statement**, so editing the instrument keeps the history while re-targeting starts a new series.
+- **The gate runs the judge itself.** With `calib:` the `probe` must contain a `{file}` placeholder; the gate runs it against the known-good fixture (must exit 0) and the known-bad one (must exit non-zero). A `score:` counts only when the *judge* prints it, and evidence must resolve inside the evaluated workspace.
+- **Honest exit codes.** `check` exits 0 GO / 2 NO-GO / 3 BLOCKED / 4 state-error / 5 busy; a gate that never ran can no longer be mistaken for a failed conclusion.
+- **Fail closed on a missing workspace.** No `cwd` means no judgment (previously it fell back to `process.cwd()`, where no contract exists, so every claim passed). `goal_gate_stamp` now goes through the approval seam by default.
 - **BROKEN is decisive.** Missing instrument (rc 127), failed probe, metric miss, unmatched `sd:`/`var:`, unbound/stale judged evidence, missing judge and calibration defects are `broken` → NO-GO; they can no longer hide inside the “≤1/3 unverifiable” allowance.
 - **R3 approval stamp.** `goal_gate_stamp` / `/goal-stamp` freezes the contract and budgets; any later edit makes completion claims fail as `contract-revised` until an explicit re-stamp.
 - **Content-bound digests.** Same-size edits change the digest; a check that mutates the workspace is refused as `check-mutated-tree`; build-output directories are no longer silently excluded.
-- **Objective surface.** `minimize`, `!=`, data-driven `sd:`/`var:` noise bands, first-run baseline establishment, and per-round `efficiency` with strategy attribution.
+- **Objective surface.** `minimize`, `!=`, data-driven `sd:`/`var:` noise bands, first-run watermark only (no free PASS), and per-round `efficiency` with strategy attribution.
 - **Budgets are fuses.** Round and wall-clock budgets bind at stamp and deny non-GO completion claims; `goal-reset --new-loop` is the human recovery path.
 - **DSH-native.** `task_board_manage` `move-done` is intercepted; `dispatch:true` and `goal_gate_dispatch` create real native Agent Teams tasks for a Team Lead; read-only `goal_gate_status` / `goal_gate_audit`.
 - **Complex-case fixes (v0.9.1).** Claim-time `delta` no longer requires a second improvement, grill no longer flags ordered scopes / bound judged contracts, and the fallback CLI now takes the ledger lock; `examples/plugin-e2e` covers all three.
@@ -25,7 +31,7 @@ Contract-first acceptance criteria, a gate that **re-runs every check itself** (
 
 - **门控**：自己重跑每条 AC 的 check（零模型参与）；`broken`（仪器坏了、判官缺失、证据失联、取数失败）是决定性 NO-GO；只有门控能发 GO。
 - **R3 盖章**：`goal_gate_stamp` / `/goal-stamp` 冻结契约与预算；盖章后改契约，完成声明一律 `contract-revised`，重新批准才放行。
-- **证据绑定**：judged 评审必须含 `artifact:` + `digest: sha256:`，`calib:` 还要求 `calib-good: PASS` / `calib-bad: FAIL`；检查自己改工作区（`check-mutated-tree`）判无效——测量产物请写 `.goal-gate/evidence/`。
+- **证据绑定**：judged 评审必须含 `artifact:` + `digest: sha256:`，且证据文件必须落在被评估的工作区内；`calib:` 由门控自己拿 probe 对已知好/坏夹具各跑一次（好夹具必须过、坏夹具必须不过），不采信评审自述的 `calib-good: PASS`；检查自己改工作区（`check-mutated-tree`）判无效——测量产物请写 `.goal-gate/evidence/`。
 - **闭环**：`/goal-loop-at <目标>` 建契约骨架 + 轮次配置 + 协议 + 建议任务；`score` 不回退、轮次/墙钟预算到点停、假完成 2 次 BLOCKED（人类 `/goal-reset` 才解）。
 - **分级治理**：`update_goal(complete)` 永远硬拦；任务级完成声明按 `exit: strict|goal-only` 分级；`task_board_manage move-done` 同样受管——多任务循环不会死锁，也不会绕过门控。
 
@@ -59,7 +65,32 @@ dsh plugin --profile <profile> add github:samirliu/dsh-goalloop-agentteams
 
 The package declares `dsh.bundle` with a `cordis.patch.yml` beside it, so `dsh plugin add` mounts the `goal-gate` row directly. Restart the profile after install (host code, commands and skills are composed at boot).
 
+⚠️ **Release pinning:** install from a checkout or a release ≥ v0.7.0. The v0.6.x releases predate the DSH 0.2.1-rc.2 tool-registration contract (schema-only `output` with no `render`), so they install cleanly and then fail on every *successful* tool call — `--dump-config` cannot tell them apart.
+
 ⚠️ **Entry contract:** the entry must export `name` equal to the `cordis.patch.yml` id (`goal-gate`) alongside `inject` and `apply`. A missing `name` makes the Host silently skip the bundle. `link:` installs additionally may resolve `@deepseek-ai/dsh-tools` differently than registry installs; the entry tries the bare package first and falls back to a same-shape shim, and both paths are exercised by tests.
+
+## Platforms / 平台支持
+
+The gate re-runs every AC `check` itself, so *it* owns the shell — the choice is explicit and reported, never a silent platform assumption:
+
+| Platform | Default shell | Override |
+|---|---|---|
+| Linux / macOS | `/bin/sh -c` | `config.shell` / `GOAL_GATE_SHELL` |
+| Windows | `%COMSPEC%` → `cmd.exe /d /s /c` | `config.shell` / `GOAL_GATE_SHELL`, absolute path to `sh.exe`, `bash.exe`, `pwsh.exe` or `cmd.exe` |
+
+- The shell that judged a round is reported as `shell` in `goal_gate_check`, `goal_gate_status` and `bin/gate.mjs check` output.
+- A missing shell binary is `broken` with an explicit *"gate shell not found …"* reason (config problem, not a failing artifact) — never a mute `failed`.
+- `preflight` emits `posix-syntax-on-cmd` when a check looks POSIX (`test`, `grep`, `&&`, `$VAR`) while the Windows gate would run `cmd.exe`.
+- On Windows either write checks in cmd/pwsh syntax, or point the plugin at a POSIX shell:
+
+```yaml
+- id: goal-gate
+  name: dsh-goalloop-agentteams
+  config:
+    shell: 'C:\Program Files\Git\usr\bin\sh.exe'
+```
+
+Precedence: `bin/gate.mjs --shell` / plugin `config.shell` > `GOAL_GATE_SHELL` > platform default. A POSIX-style contract on a `cmd.exe` gate is a trap the preflight warning and the reported `shell` field are designed to expose before two false completes latch `BLOCKED`.
 
 ## Plugin config / 插件配置
 
@@ -69,9 +100,10 @@ The package declares `dsh.bundle` with a `cordis.patch.yml` beside it, so `dsh p
 |---|---|---|
 | `maxRounds` | `8` | Default round budget for a new loop |
 | `requireStamp` | `false` | Refuse completion claims until the contract is approved |
-| `requireHumanApproval` | `false` | Route `goal_gate_stamp` through the DSH approval seam (`ask`) |
+| `requireHumanApproval` | `true` | Route `goal_gate_stamp` through the DSH approval seam (`ask`); set `false` explicitly for headless loops |
 | `intercept` | `true` | Mount the `tools/pre-execute` completion interceptor |
 | `registerSkills` | `true` | Register the `goal-loop` / `goal-loop-contract` runtime skills |
+| `shell` | platform default | Shell that executes AC `check`/`probe` commands (see *Platforms*) |
 
 ## Quick start / 快速开始
 
@@ -104,7 +136,7 @@ or let the model call `goal_loop_at({objective, acs?, maxRounds?, dispatch?})`. 
 | `goal_gate_judge` | Create cold-seat review tasks for judged ACs (fresh reviewer, evidence/calib brief) | `kind`, `dispatched`, `failed`, `skippedExisting`, `reason`, `suggestions` |
 | `goal_gate_doctor` | Self-check tools/parameter schemas/commands/skills/Teams/contract | `ok`, `version`, `tools`, `commands`, `skills`, `agentTeams`, `contract`, `notes` |
 
-Commands: `/goal-loop-at <objective>`, `/goal-gate` (status), `/goal-stamp [--restamp] [--max-rounds=N] [--time-budget-minutes=N] [approvedBy]`, `/goal-audit`, `/goal-grill`, `/goal-baseline [samples]`, `/goal-collect`, `/goal-judge [reviewer]`, `/goal-doctor`, `/goal-reset [--new-loop] [reason]`.
+Commands: `/goal-loop-at <objective> [--no-grill]`, `/goal-gate` (status), `/goal-stamp [--restamp] [--max-rounds=N] [--time-budget-minutes=N] [approvedBy]`, `/goal-audit`, `/goal-grill`, `/goal-baseline [samples]`, `/goal-collect`, `/goal-judge [reviewer]`, `/goal-doctor`, `/goal-reset [--new-loop] [reason]`.
 
 Runtime skills: **`goal-loop`** (the playbook), **`goal-loop-contract`** (contract forge / stamp checklist) and **`goal-loop-grill`** (adversarial eval/metric design). They are registered with `ctx.skills.register` and appear in the model's skill catalog; no filesystem install is needed.
 
@@ -124,8 +156,8 @@ Specs: `exit=0` | `exit=N` | `<=N` | `>=N` | `<N` | `>N` | `=N` | `!=N` | `maxim
 - **`scope:`** is the workspace-relative write scope used by team dispatch (`writeScopes`); **`depends:`** builds the dependency graph (`blockedBy`, `plan.waves`).
 - **`probe:`** runs first for numeric/optimization ACs and must pass; for `judged` it is the judge (exit code = verdict). A failed probe is `broken`, never `passed`.
 - **`metric:`** extracts one capture group from stdout (ANSI stripped); without it the last number is used. Missing required metric = `broken`.
-- **`maximize` / `minimize`** compare against the previous **accepted** value; the first run establishes the water mark and passes. `baseline: delta` demands strict improvement, `abs` (default) forbids regression. `tolerance:` is a relative noise band; `sd:`/`var:` widen it to `max(2*spread/|prev|, tolerance)` (`var:` is square-rooted); declared-but-unmatched spread is `broken`.
-- **`judged`** requires the verdict to carry `artifact: <path>` and `digest: sha256:<64hex>` (recomputed by the gate). Unbound, stale or unreadable evidence is `broken`. With `calib: good=<f> bad=<f>` the verdict must also carry `calib-good: PASS` and `calib-bad: FAIL`, and both fixtures must exist.
+- **`maximize` / `minimize`** compare against the previous **accepted** value; the first run only records the water mark (verdict `unverifiable`, no pass — a fresh metric series must not hand out a free PASS). `baseline: delta` demands strict improvement, `abs` (default) forbids regression. `tolerance:` is a relative noise band; `sd:`/`var:` widen it to `max(2*spread/|prev|, tolerance)` (`var:` is square-rooted); declared-but-unmatched spread is `broken`. The metric identity is the AC id plus a hash of the **statement**, so editing the instrument keeps the history while re-targeting the statement starts a new series.
+- **`judged`** requires the verdict to carry `artifact: <path>` and `digest: sha256:<64hex>` (recomputed by the gate). Unbound, stale or unreadable evidence is `broken`, and the artifact must resolve inside the evaluated workspace. With `calib: good=<f> bad=<f>` the gate runs the `probe` (which must contain a `{file}` placeholder) against both fixtures itself: the known-good one must exit 0 and the known-bad one must exit non-zero. Self-reported `calib-good: PASS` / `calib-bad: FAIL` lines are not trusted.
 - **Evidence produced by checks** (renders, logs, judge inputs) belongs under `.goal-gate/evidence/` — it is excluded from the digest. Checks that write anywhere else in the workspace fail the round as `check-mutated-tree`.
 - **`risk:` is the blast-radius lane (Art3 §8 — gate on blast radius, not confidence).** `low` (default) = reversible and contained, normal gating. `wide` = reversible but shared, and `hard` = hard to reverse (migrations, deletions, production data, money). Both stricter lanes demand a falsifiability proof on **every** AC (`neg:` for decisive ACs, `calib:` for judged ones) — a wider blast radius never buys a laxer check. A `hard` lane **does not open** on a green gate: completion claims are denied with `risk-lane-closed` until a human records `goal_gate_approve` / `/goal-approve`, and that approval is bound to the contract stamp **and the current tree digest** — edit the artifact and it lapses. It is a closed lane, not a higher threshold.
 - **`deliverable:`** is advisory in the gate but drives preflight: a contract with no check touching the deliverable and no runtime AC gets `deliverable-unverified` / `no-runtime-ac` warnings before a round is burned.
@@ -159,7 +191,7 @@ Additional outputs: `score` (passed/total), `bestScore` (high-water), `regressio
 
 - **R3 stamp.** `goal_gate_stamp({approvedBy, maxRounds?, timeBudgetMinutes?, restamp?, note?})` writes the approval to `state.json` and may bind the budgets. A contract edit changes its stamp; completion claims are denied `contract-revised` until `restamp:true` (or `/goal-stamp`).
 - **`requireStamp: true`** in plugin config makes an approved stamp mandatory before any completion claim (default `false`; the stamp remains recommended and is what `/goal-loop-at`'s protocol asks for).
-- **`requireHumanApproval: true`** makes `goal_gate_stamp` itself go through the DSH approval seam (`{kind:'ask'}` in `tools/pre-execute`). Under an approval policy of `never` this fails closed — the default is `false` so headless loops still work.
+- **`requireHumanApproval`** (default `true`) makes `goal_gate_stamp` itself go through the DSH approval seam (`{kind:'ask'}` in `tools/pre-execute`): stamping freezes what counts as done, so it must be the human's decision. Under an approval policy of `never` this fails closed; set `requireHumanApproval: false` explicitly for headless loops.
 - **Round budget** (`maxRounds`, default 8) and **wall-clock budget** (`timeBudgetMinutes`) are fuses: a non-GO completion claim at/over budget is denied (`rounds-exhausted` / `time-budget`). Green delivery is never confiscated at the time fuse.
 - **False-complete ratchet:** a denied `update_goal(complete)` means the artifact is not done. Two denied goal-completes → `BLOCKED`; all claims freeze. `/goal-reset [--new-loop]` is the human-only recovery (there is deliberately no model-facing reset tool).
 - **Loop identity:** a second `goal_loop_at` with a different objective refuses (`objective-drift`); changing the objective is changing the definition of done, so edit + re-approve or start a fresh workspace/loop.
@@ -199,6 +231,17 @@ The plugin adapts to the native team service opportunistically (`ctx.get('agentT
 
 `goal_gate_grill` is a read-only attack on the contract, derived from goal-loop's grilling/contract-forge discipline. It returns `findings[severity, ac, issue, suggestion]`, the remaining `questions` for the user, `metricDesign` advice per optimize AC, and `goodhart` gaming paths. `verdict: ready` requires no high/medium findings. The `goal-loop-grill` skill teaches the interview frontier: ask what "done" means, how a cheap change could game the number, what known-bad case proves refusal, what baseline/spread was measured, and which evidence a judge must bind. Fix findings → re-grill → `goal_gate_baseline` → stamp.
 
+### Grilling is on by default / 开循环自动 grill
+
+Running `goal_loop_at` (or `/goal-loop-at <objective>`) grills the contract for you: the same `grillContract` pass, run inside the loop start, read-only and burning no round. The verdict lands in the reply as `grill` and as the first actionable `nextActions` entry, so a loop never starts with "what now?" — it starts with the verdict.
+
+- **It never blocks the loop itself.** A loop may start on a needs-work design; the reply says so.
+- **It does block dispatch.** `goal_loop_at({dispatch:true})` and `goal_gate_staff({spawn:true})` refuse to create teammates while the verdict is not `ready`, and answer with `reason: "grill verdict=needs-work: …"` plus the blocking `findings` and `suggestions`. Filling a skeleton contract with `TODO-REPLACE-ME` placeholders is exactly the case this catches.
+- **It never blocks a stamp.** `goal_gate_stamp` also grills and returns `grill` as a warning, because approval is the human's call, not the heuristic's.
+- **Escape hatch:** `grill:false` on the tool, `--no-grill` / `--grill=false` on the command. Undocumented spellings (e.g. `--grilling`) are *not* switches — the objective text keeps them.
+
+Severity is calibrated against the deterministic preflight so the grill is a design advisor, not a second lint pass: a statically-checked contract ("nothing executes at runtime") is `low` because `preflightChecks` already reports it; `high` is reserved for design holes ("deliverable is not touched by any check"). Tautology probes, missing noise bands, one-sided judged ACs and overlapping scopes stay `high`/`medium`.
+
 ## Read-only status and audit / 只读状态与审计
 
 - `goal_gate_status({includeHistory?})` / `/goal-gate`: contract/stamp/approval, loop, counters, digest and bound digest, round/time budgets, idle status, recent history. It runs **no checks** and burns no round.
@@ -211,13 +254,16 @@ The plugin adapts to the native team service opportunistically (`ctx.get('agentT
 A resumed session may lack the plugin's tool table. The same ledger and the same gate are reachable from any shell (resolve the absolute Node path from `process.execPath` or plugin config — **never write a bare `node`**):
 
 ```sh
-<abs-node> <plugin>/bin/gate.mjs check   --cwd <workspace> [--strategy <s>] [--note <n>]
+<abs-node> <plugin>/bin/gate.mjs check   --cwd <workspace> [--strategy <s>] [--note <n>] [--shell <shell>]
 <abs-node> <plugin>/bin/gate.mjs status  --cwd <workspace>
 <abs-node> <plugin>/bin/gate.mjs audit   --cwd <workspace>
 <abs-node> <plugin>/bin/gate.mjs stamp   --cwd <workspace> [--approved-by <who>] [--max-rounds <n>] [--time-budget-minutes <n>] [--restamp]
 <abs-node> <plugin>/bin/gate.mjs reset   --cwd <workspace> [--new-loop]
-<abs-node> <plugin>/bin/gate.mjs preflight --cwd <workspace>
+<abs-node> <plugin>/bin/gate.mjs unlock  --cwd <workspace>
+<abs-node> <plugin>/bin/gate.mjs preflight --cwd <workspace> [--shell <shell>]
 ```
+
+`check` exits `0` GO / `2` NO-GO / `3` BLOCKED / `4` state-error / `5` busy — a gate that never ran is not a failed conclusion. `unlock` force-releases a wedged ledger lock (holder process dead or unreachable); it never touches the ledger, which the signature check protects.
 
 ## DSH host contract notes / 宿主契约（0.2.1-rc.2 实测）
 
@@ -227,6 +273,8 @@ A resumed session may lack the plugin's tool table. The same ledger and the same
 - Skills are registered in-memory with `ctx.skills.register({name, description, content, source, …})`; DSH does not scan a package's `skills/` directory.
 - Workspace root comes from `exec.agent.session.header.cwd`; there is no `exec.session` / `exec.cwd`.
 - The native Agent Teams service is `ctx.get('agentTeams')` (optional, never `inject`); its tasks are the `team_task_*` tools, not `agent_teams_*`.
+- The gate shells out on its own: `/bin/sh -c` on POSIX, `%COMSPEC%` on Windows (see *Platforms*). `app.asar` module fallbacks are loaded through `pathToFileURL`, because ESM rejects bare `C:\…` paths on Windows (`ERR_UNSUPPORTED_ESM_URL_SCHEME`).
+- `agent.followup(...)` does **not** exist on the 0.2.1-rc.2 Agent; `/goal-loop-at` therefore returns the protocol in its command result instead of injecting it.
 
 `docs/platform-contract.md` records the verified evidence and probe method.
 
@@ -239,7 +287,7 @@ A resumed session may lack the plugin's tool table. The same ledger and the same
 | digest-bound verdicts (R7) | content-hash `treeDigest` + `check-mutated-tree` + digest-bound claims |
 | R1 false-complete count → BLOCKED | `falseCompleteRule` + `goal-reset` (human) |
 | objective water mark / `sd:`/`var:` | `maximize`/`minimize` baselines + tolerance/spread bands + `efficiency` |
-| judged seat + `calib:` | artifact+sha256 binding + `calib-good`/`calib-bad` grades |
+| judged seat + `calib:` | artifact+sha256 binding (inside the workspace) + gate-run good/bad fixture calibration |
 | `/goal-loop-at` trigger + loop budget | `goal_loop_at` / `/goal-loop-at` + `loop.json` + round/time fuses |
 | `goal_audit.sh` ledger audit | `goal_gate_audit` / `/goal-audit` |
 | crew/work-plan/roster/inbox/Teams backend | **dropped** — native Agent Teams + task board + `goal_gate_dispatch` |
@@ -257,6 +305,12 @@ A resumed session may lack the plugin's tool table. The same ledger and the same
 
 ```sh
 <abs-node> test/run-local.mjs
+```
+
+The suite is platform-neutral and runs on Windows (`cmd.exe` gate) and POSIX (`/bin/sh`) alike; `GOAL_GATE_SHELL` selects the shell, so a POSIX shell on Windows (Git Bash, WSL) is exercised with the same files:
+
+```sh
+$env:GOAL_GATE_SHELL='C:\Program Files\Git\usr\bin\sh.exe'; <abs-node> test/run-local.mjs
 ```
 
 The real `@deepseek-ai/dsh-tools` lives inside the DSH Host and is not importable outside it, so the entry falls back to a parameter-schema-compiling shim. Tests never write a `node_modules/@deepseek-ai/dsh-tools` shim into the package directory: in a `link:` install that shim wins module resolution and the Host would register un-compiled parameter schemas (the provider rejects them with `type: null`). The suite covers core judgement, wiring (all tools/commands/skills, provider-visible parameter schemas), ledger/audit/stamp, red-team defences, purity, load-safety without commands, the v0.7 surfaces (fuses, task-board claims, dispatch, efficiency, reset), the v0.8 surfaces (scope/depends waves, idempotent/blocked dispatch, team snapshot/nextActions, grilling, baseline/spread, ledger lock) and the v0.9 surfaces (staff preview/spawn, collect readiness, judge tasks, lock wait, horizon guard). The real-host registration contract is verified against the extracted 0.2.1-rc.2 packages; see `docs/platform-contract.md`.

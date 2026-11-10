@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { withLedgerLock, acquireLedgerLock } from '../lib/ledger.js';
 import { grillContract } from '../lib/grill.js';
+import { mkdtemp, ok, metric, showFile, fileContains, nodeNoop, fail, sequence } from './fixtures/shell.mjs';
 
 const mod = await import('../lib/index.js');
 
@@ -71,12 +72,12 @@ function fakeTeam() {
   const team = fakeTeam();
   const reg = makeCtx(team);
   mod.apply(reg.ctx, {});
-  const work = fs.mkdtempSync('/tmp/v09-staff-');
+  const work = mkdtemp('v09-staff-');
   const exec = { agent: { member: true, session: { header: { cwd: work } } }, signal: new AbortController().signal };
   fs.mkdirSync(path.join(work, '.goal-gate'));
   fs.writeFileSync(path.join(work, '.goal-gate/goal.md'), `objective: staffed team
-AC-1 | core | check: \`test -d .\` | scope: src/core | expected: exit=0
-AC-2 | ui | check: \`test -d .\` | scope: src/ui | depends: AC-1 | expected: exit=0
+AC-1 | core | check: \`${ok()}\` | scope: src/core | expected: exit=0
+AC-2 | ui | check: \`${ok()}\` | scope: src/ui | depends: AC-1 | expected: exit=0
 `);
 
   const preview = await call(reg, 'goal_gate_staff', {}, exec);
@@ -86,7 +87,20 @@ AC-2 | ui | check: \`test -d .\` | scope: src/ui | depends: AC-1 | expected: exi
   assert.equal(team.tasks.length, 0, 'preview creates no tasks');
 
   const spawned = await call(reg, 'goal_gate_staff', { spawn: true }, exec);
-  assert.equal(spawned.mode, 'spawned');
+  // 派工前会先 grill 设计；这个骨架两条 AC 用同一条 ok()，属"重复仪器"的 medium finding。
+  // 门自己会把 spawn:false 放过去（预览不该被拦），但 spawn:true 要先看到契约是活的。
+  if (spawned.mode === 'suggestions') {
+    assert.match(spawned.reason, /grill verdict=needs-work/, 'spawn is refused with the grill verdict');
+    assert.ok(spawned.findings.length >= 1, 'and names the blocking findings');
+    fs.writeFileSync(path.join(work, '.goal-gate/goal.md'), `objective: staffed team
+AC-1 | core | check: \`${nodeNoop()}\` | neg: \`${fail()}\` | scope: src/core | expected: exit=0
+AC-2 | ui | check: \`${sequence(nodeNoop(), ok())}\` | neg: \`${fail()}\` | scope: src/ui | depends: AC-1 | expected: exit=0
+`);
+    const retried = await call(reg, 'goal_gate_staff', { spawn: true }, exec);
+    assert.equal(retried.mode, 'spawned', 'retry after fixing the design');
+  } else {
+    assert.equal(spawned.mode, 'spawned');
+  }
   assert.equal(team.spawns.length, 2, 'one teammate per dependency wave');
   assert.match(team.spawns[0].prompt[0].text, /You own: AC-1/);
   assert.equal(team.tasks.length, 2);
@@ -100,10 +114,10 @@ AC-2 | ui | check: \`test -d .\` | scope: src/ui | depends: AC-1 | expected: exi
   const team = fakeTeam();
   const reg = makeCtx(team);
   mod.apply(reg.ctx, {});
-  const work = fs.mkdtempSync('/tmp/v09-collect-');
+  const work = mkdtemp('v09-collect-');
   const exec = { agent: { member: true, session: { header: { cwd: work } } } };
   fs.mkdirSync(path.join(work, '.goal-gate'));
-  const contract = 'objective: collect\nAC-1 | core | check: `test -d .` | expected: exit=0\nAC-2 | ui | check: `test -d .` | expected: exit=0\n';
+  const contract = `objective: collect\nAC-1 | core | check: \`${ok()}\` | expected: exit=0\nAC-2 | ui | check: \`${ok()}\` | expected: exit=0\n`;
   fs.writeFileSync(path.join(work, '.goal-gate/goal.md'), contract);
   const stamp = (await import('../lib/core.js')).contractStamp(contract);
   team.tasks.push(
@@ -126,12 +140,12 @@ AC-2 | ui | check: \`test -d .\` | scope: src/ui | depends: AC-1 | expected: exi
   const team = fakeTeam();
   const reg = makeCtx(team);
   mod.apply(reg.ctx, {});
-  const work = fs.mkdtempSync('/tmp/v09-judge-');
+  const work = mkdtemp('v09-judge-');
   const exec = { agent: { member: true, session: { header: { cwd: work } } } };
   fs.mkdirSync(path.join(work, '.goal-gate'));
   fs.writeFileSync(path.join(work, '.goal-gate/goal.md'), `objective: judge
 deliverable: out.txt
-AC-1 | quality | check: \`cat .goal-gate/evidence/v.txt\` | probe: \`true\` | calib: good=good.txt bad=bad.txt | expected: judged
+AC-1 | quality | check: \`${showFile('.goal-gate/evidence/v.txt')}\` | probe: \`${ok()}\` | calib: good=good.txt bad=bad.txt | expected: judged
 `);
   const first = await call(reg, 'goal_gate_judge', { reviewer: 'engineer' }, exec);
   assert.equal(first.dispatched.length, 1);
@@ -149,7 +163,7 @@ AC-1 | quality | check: \`cat .goal-gate/evidence/v.txt\` | probe: \`true\` | ca
 
 // ── 4. lock waits for a short window instead of failing immediately ───────
 {
-  const work = fs.mkdtempSync('/tmp/v09-lock-');
+  const work = mkdtemp('v09-lock-');
   fs.mkdirSync(path.join(work, '.goal-gate'));
   const release = acquireLedgerLock(work);
   setTimeout(release, 60);
@@ -160,10 +174,10 @@ AC-1 | quality | check: \`cat .goal-gate/evidence/v.txt\` | probe: \`true\` | ca
 
 // ── 5. grill: optimization without a horizon is called out ────────────────
 {
-  const work = fs.mkdtempSync('/tmp/v09-horizon-');
+  const work = mkdtemp('v09-horizon-');
   const report = grillContract({
     contractText: `objective: optimize only
-AC-1 | throughput | check: \`printf 'm=100\\n'\` | probe: \`true\` | metric: \`m=([0-9.]+)\` | tolerance: 0.05 | expected: maximize
+AC-1 | throughput | check: \`${metric('m=100')}\` | probe: \`${ok()}\` | metric: \`m=([0-9.]+)\` | tolerance: 0.05 | expected: maximize
 `,
     state: { baselines: {}, spreads: {} },
     cwd: work,
@@ -176,9 +190,9 @@ AC-1 | throughput | check: \`printf 'm=100\\n'\` | probe: \`true\` | metric: \`m
   const ordered = grillContract({
     contractText: `objective: ordered
 deliverable: out.txt
-AC-1 | core | check: \`test -f out.txt\` | scope: src/core | expected: exit=0
-AC-2 | core follow-up | check: \`test -f out.txt\` | scope: src/core | depends: AC-1 | expected: exit=0
-AC-3 | docs | check: \`cat verdict.txt\` | probe: \`grep -q PASS verdict.txt\` | calib: good=g.txt bad=b.txt | scope: docs | expected: judged
+AC-1 | core | check: \`${ok()}\` | scope: src/core | expected: exit=0
+AC-2 | core follow-up | check: \`${ok()}\` | scope: src/core | depends: AC-1 | expected: exit=0
+AC-3 | docs | check: \`${showFile('verdict.txt')}\` | probe: \`${fileContains('verdict.txt', 'PASS')}\` | calib: good=g.txt bad=b.txt | scope: docs | expected: judged
 `,
     state: { baselines: {}, spreads: {} },
     cwd: work,

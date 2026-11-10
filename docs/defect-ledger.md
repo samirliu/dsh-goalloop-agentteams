@@ -33,7 +33,7 @@
 | 24 | **成功返回全部失败(真实宿主)** | 0.6.x 的 output 只有 schema、没有 render;0.2.1-rc.2 的 defineTool 安装 wrapper 并在成功时调用 → 每次成功调用 `output.render failed: userRender is not a function`;deny 路径不渲染,所以"看起来在工作" | 每个工具声明共享 `renderJson`(JSON text block) | wiring:render 存在/可调用;真实 registry harness 全工具成功返回 |
 | 25 | **命令从未注册** | `ctx.inject(['commands'], c => c.register(...))` 的 c 是子 Context → 读 `c.register` 抛 "cannot get property";空 `input.hint:''` 又被 register 拒绝 | `c.commands.register(...)`;无参命令省略 `input`;followup 使用完整 UserMessage | wiring + 真实 commands fiber:5 个命令在 list 中 |
 | 26 | 输出 schema 越界 | 属性级 `required:true` 与 author-only `type:'json'` 不在受支持子集 → register 直接拒绝或成功调用校验失败 | 输出 schema 只用受支持子集;可空对象用 `oneOf:[object,null]` | wiring:递归 schema 断言;真实 harness |
-| 27 | 首轮水位判定 | goal-loop 的数值语义是首轮建立水位即 PASS;插件判 unverifiable,叠加 17 会稀释 GO | maximize/minimize 首轮 PASS 并写入基线;delta 从第二轮生效 | smoke:基线闭环 |
+| 27 | 首轮水位判定 | goal-loop 的数值语义是首轮建立水位即 PASS;插件判 unverifiable,叠加 17 会稀释 GO。**v0.10.0 复查推翻**:首轮免判本身就是漏洞——改一次 check 文本就换一个指标序列,每轮都能白拿 PASS | maximize/minimize 首轮 `unverifiable`(只建档、不给结论);水位靠 `goal_gate_baseline` 或上一轮建立,delta 从第二轮生效 | smoke:基线闭环;P0/P1:首轮不判 |
 | 28 | 目标面缺件 | 无 `minimize` / `!=` / `sd:` / `var:`,无法表达最小化目标与数据噪声 | 全部解析与判定;声明了 spread 却匹配不到 = broken;噪声带 `max(2*spread/|prev|, tolerance)` | smoke:minimize/!=/sd/spread-miss |
 | 29 | 循环身份漂移 | goal_loop_at 复用旧 loop.createdAt;目标变了却沿用旧契约/轮次/历史 | 目标不一致 → `objective-drift`;只有新建契约才换 loop 时钟 | v07:objective drift |
 | 30 | CLI 状态字段错 | `bin/gate.mjs status` 把 stamp 报成 AC 数量 | 改为真实 contractStamp;补齐 audit/stamp/reset/status | ledger:gate.mjs CLI;v07 |
@@ -52,19 +52,21 @@
 | 43 | 完成声明重复要求 delta 改善 | GO 已经接受当前水位;拦截器重跑同一 optimize AC 时 `baseline: delta` 仍要求再涨一次,一次正常波动就能把已 GO 的目标判 NO-GO | `runGate(mode:'claim')`:声明轮 `delta` 退化为不回退(真恶化仍失败);`goal_gate_check` 保持严格 delta | e2e case1;smoke:claimMode |
 | 44 | grill 对"按序同 scope"和"有 probe+calib 的 judged"误报 | 顺序依赖的两个 AC 共享目录被报 scope 冲突;任何 judged 都带 medium "must bind evidence" → 有 judged 的契约永远无法 ready | scope 冲突仅在**无 depends 顺序**时报告;judged evidence 改为 low 提醒(门控仍强制 digest/calib) | v09:ordered/judged grill |
 | 45 | CLI 并发无锁 | `bin/gate.mjs check/stamp` 绕过账本锁,两个进程并发会互相覆盖 round/baseline;case4 暴露 | CLI check/stamp 走 `withLedgerLock(...,{waitMs:2000})`,busy 明确退出 | examples/plugin-e2e case4 |
-| 52 | **只有纠正边，没有学习边** | 失败被修好就消失：同一成因在后续轮次/后续契约里原样复发，系统很快但永远不会变聪明（Art3 §6 点名的病）。缺陷总账是人手写的,插件自身没有"失败→约束"的通路 | 新增 `lib/lessons.js`：按「AC + 成因签名（数字归一化）」累计，复发 ≥2 次升格为 lesson；open lesson 拦截 `goal_gate_stamp` 与完成声明（`lessons-open`），结账必须给证据/理由（空口拒绝），结账后再复发会重开并记 `reopened`；落点接进 grill 与 check 输出 | v12:签名/升格/去重/空口拒绝/重开/盖章拦截/声明拦截/工具面/隔离 7 组断言 |
-| 49 | **门控不分爆炸半径** | 一次文案改动和一次删库迁移走同一扇门、按同一个分数放行——这是 Art3 §8 点名的错误变量（置信度是模型唯一能影响的输入，所以它是最弱的判据） | 文法新增 `risk: low|wide|hard`；wide/hard 要求每条 AC 都有可证伪证据（`neg:`/`calib:`），不留豁免；hard 车道**不开门**：全绿也拦完成声明（`risk-lane-closed`），需人类 `goal_gate_approve` / `/goal-approve`，批准绑定「契约盖章 + 当前产物摘要」，产物一改即失效 | v11:车道/加严/开闭/绑定失效 6 组断言;CLI approve 实跑 |
-| 50 | **"≤1/3 unverifiable 允许 GO"已成死代码** | 缺陷 #17 把仪器故障全升格为 broken 之后，`unverifiable` 在正常路径上已不可达（实测 judged 无判官/数值取不到/缺 probe 全部 broken）——ratio 宽容与"干净轨迹"规则都不会被触发，是 harness 自身的腐化 | 不删守卫但不再依赖它：车道加严改为可达的"每条 AC 都要可证伪证据"，并在此记账（下轮决定是删除还是给它一个真实生产者） | v11:gap 场景证明 `unproven-lane` 可达 |
-| 51 | **批准可以是"一类"而不是"一版"** | 若批准只按契约盖章放行，产物在批准后被改仍然有效——等于用一次批准授权了未来所有改动 | 批准记录 `{stamp, digest}` 双绑定：`riskLaneDenial` 每次声明完成时重算 tree digest，不匹配即视为未批准 | v11:改产物后车道重新关闭 |
-| 46 | **位置敏感文法静默丢 AC** | 字段顺序被大正则写死：把 `neg:` 插到 `metric:` 前面、或把 `probe:` 写到 `tolerance:` 之后，整条 AC 解析失败并被**静默丢弃**。e2e「强契约」里的 AC-3 从未被评估过，正是这条缺陷的活证据 | 改用「statement + 逐段 key/value」解析器：顺序自由、反引号内 `|` 不切段；缺 `check:`/`expected:` 或未加反引号的命令一律拒评 | v10:任意顺序解析 / smoke:顺序自由;v08 强契约 AC-3 首次真正被评估 |
-| 47 | **字段拼写错误被静默忽略** | `mtric:`、`tolerence:` 这类拼写错误不会报错，只是该字段不存在——数值 AC 退化成"最后数字"兜底，噪声带消失，评估面开天窗 | 未知字段名 / 重复字段一律 `state-error` 并点名 AC 与字段 | v10:typo/duplicate 拒评;smoke:unknown field 点名 |
-| 48 | **门控无法证明 check 会红** | 判读面有 `calib:` 夹具校准、普通行有 `probe:`（仪器可用性），但**决定性 AC 没有任何"反向对照"**：check 写成永真式（`true`、恒过断言、逻辑写反）时门控照样 GO。grill 只能凭启发式警告，无法验证 | 文法新增 `neg:`（打到故意做坏输入上的同一条断言，**必须非零退出**）；门控按 `probe → neg → check` 执行，`neg` 退出 0 → `broken`（永真式验收）；注入 `GG_NEG=1` 支持"同一命令 + 开关切坏夹具"；预检/grill 对决定性 AC 未声明 `neg:` 亮牌，`vacuity-waived:` 显式豁免 | v10:pass/broken/127/124/env 五向;grill:missing/exempt/waived 三向;e2e 夹具全部补 neg |
+| 46 | **Windows 上门控永远 NO-GO** | `runCommand` 硬编码 `spawnSync('/bin/sh', ['-c', cmd])`;Windows 无 `/bin/sh` → ENOENT → 映射 128 → 所有 AC 判 failed/broken → 门控永不 GO,拦截器拦掉每次 `update_goal(complete)`/`team_task_update(complete)`,两次后 BLOCKED | 显式解释器解析 `resolveShell()`:POSIX 默认 `/bin/sh -c`,Windows 默认 `%COMSPEC% /d /s /c`(verbatim 参数);`config.shell`/`GOAL_GATE_SHELL`/`--shell` 可覆盖;结论带 `shell` 字段;解释器缺失判 broken 并点名修复;preflight 新增 `posix-syntax-on-cmd`;超时识别 `ETIMEDOUT` | 平台中立夹具:+ Windows 默认 shell / Git Bash sh 双模式全量套件 |
+| 47 | **CRLF checkout 下 skill 静默消失** | `parseSkillFile` 用 `([A-Za-z0-9_-]+):\s*(.*)$`(无 m 标志)解析 frontmatter;Windows / `core.autocrlf=true` 的 CRLF 让 `$` 落不到行尾 → description 为空 → 3 个 runtime skill 全部被跳过(真实 Git checkout 上 wiring 断言得到 `[]`;LF 工作区不复现) | 读取时 `\r\n?` → `\n` 归一化再解析;导出 `parseSkillFile` 并加 CRLF frontmatter 回归用例 | wiring:CRLF frontmatter |
+| 59 | **只有纠正边，没有学习边** | 失败被修好就消失：同一成因在后续轮次/后续契约里原样复发，系统很快但永远不会变聪明（Art3 §6 点名的病）。缺陷总账是人手写的,插件自身没有"失败→约束"的通路 | 新增 `lib/lessons.js`：按「AC + 成因签名（数字归一化）」累计，复发 ≥2 次升格为 lesson；open lesson 拦截 `goal_gate_stamp` 与完成声明（`lessons-open`），结账必须给证据/理由（空口拒绝），结账后再复发会重开并记 `reopened`；落点接进 grill 与 check 输出 | v12:签名/升格/去重/空口拒绝/重开/盖章拦截/声明拦截/工具面/隔离 7 组断言 |
+| 56 | **门控不分爆炸半径** | 一次文案改动和一次删库迁移走同一扇门、按同一个分数放行——这是 Art3 §8 点名的错误变量（置信度是模型唯一能影响的输入，所以它是最弱的判据） | 文法新增 `risk: low|wide|hard`；wide/hard 要求每条 AC 都有可证伪证据（`neg:`/`calib:`），不留豁免；hard 车道**不开门**：全绿也拦完成声明（`risk-lane-closed`），需人类 `goal_gate_approve` / `/goal-approve`，批准绑定「契约盖章 + 当前产物摘要」，产物一改即失效 | v11:车道/加严/开闭/绑定失效 6 组断言;CLI approve 实跑 |
+| 57 | **"≤1/3 unverifiable 允许 GO"已成死代码** | 缺陷 #17 把仪器故障全升格为 broken 之后，`unverifiable` 在正常路径上已不可达（实测 judged 无判官/数值取不到/缺 probe 全部 broken）——ratio 宽容与"干净轨迹"规则都不会被触发，是 harness 自身的腐化 | 不删守卫但不再依赖它：车道加严改为可达的"每条 AC 都要可证伪证据"，并在此记账（下轮决定是删除还是给它一个真实生产者） | v11:gap 场景证明 `unproven-lane` 可达 |
+| 58 | **批准可以是"一类"而不是"一版"** | 若批准只按契约盖章放行，产物在批准后被改仍然有效——等于用一次批准授权了未来所有改动 | 批准记录 `{stamp, digest}` 双绑定：`riskLaneDenial` 每次声明完成时重算 tree digest，不匹配即视为未批准 | v11:改产物后车道重新关闭 |
+| 53 | **位置敏感文法静默丢 AC** | 字段顺序被大正则写死：把 `neg:` 插到 `metric:` 前面、或把 `probe:` 写到 `tolerance:` 之后，整条 AC 解析失败并被**静默丢弃**。e2e「强契约」里的 AC-3 从未被评估过，正是这条缺陷的活证据 | 改用「statement + 逐段 key/value」解析器：顺序自由、反引号内 `|` 不切段；缺 `check:`/`expected:` 或未加反引号的命令一律拒评 | v10:任意顺序解析 / smoke:顺序自由;v08 强契约 AC-3 首次真正被评估 |
+| 54 | **字段拼写错误被静默忽略** | `mtric:`、`tolerence:` 这类拼写错误不会报错，只是该字段不存在——数值 AC 退化成"最后数字"兜底，噪声带消失，评估面开天窗 | 未知字段名 / 重复字段一律 `state-error` 并点名 AC 与字段 | v10:typo/duplicate 拒评;smoke:unknown field 点名 |
+| 55 | **门控无法证明 check 会红** | 判读面有 `calib:` 夹具校准、普通行有 `probe:`（仪器可用性），但**决定性 AC 没有任何"反向对照"**：check 写成永真式（`true`、恒过断言、逻辑写反）时门控照样 GO。grill 只能凭启发式警告，无法验证 | 文法新增 `neg:`（打到故意做坏输入上的同一条断言，**必须非零退出**）；门控按 `probe → neg → check` 执行，`neg` 退出 0 → `broken`（永真式验收）；注入 `GG_NEG=1` 支持"同一命令 + 开关切坏夹具"；预检/grill 对决定性 AC 未声明 `neg:` 亮牌，`vacuity-waived:` 显式豁免 | v10:pass/broken/127/124/env 五向;grill:missing/exempt/waived 三向;e2e 夹具全部补 neg |
 
 ## 质量演进
 
-- **证据保真**(v0.4.x):deliverable 声明 + 覆盖预检 + judged 评审强制证据摘要绑定(R7 for judgments)——区分"验了部分"与"验了本体"
-- **质量分**(v0.5.0):judged 结论带 score 进指标管道;`baseline: delta` 让质量逐轮必须改善;质量目标 AC 门槛
-- **度量纪律**(v0.3.1):基线只随通过推进(失败观测永不拉低);指标身份 = AC 编号 + check 哈希
+- **证据保真**(v0.4.x):deliverable 声明 + 覆盖预检 + judged 评审强制证据摘要绑定(R7 for judgments)——区分"验了部分"与"验了本体";v0.10.0 起证据必须落在被评估的工作区内
+- **质量分**(v0.5.0):judged 结论带 score 进指标管道;`baseline: delta` 让质量逐轮必须改善;质量目标 AC 门槛。v0.10.0 起分数只采信判读席(probe)的输出,不采信被评产物自述
+- **度量纪律**(v0.3.1):基线只随通过推进(失败观测永不拉低);指标身份 = AC 编号 + 语句哈希
 - **鲁棒性**(v0.3.0+):bash 可达的门控 CLI(binp/gate.mjs)、裸运行时/相对解释器预检、永真式点名
 - **接线**(v0.2.x):真实工具名接线、入口 name 契约、link: 安装的模块解析链
 - **时间与诚实性**(v0.6.2):门控自计时、最近评估时钟、loop-idle 检测、重评点名、错误不烧轮——墙钟进账本,不再靠口头
@@ -76,6 +78,9 @@
 - **评估设计**(v0.8.0):grilling skill + grill 工具、基线与离散度测量、数据驱动噪声带、第三个运行时 skill
 - **团队编排**(v0.9.0):staff 预览/spawn、collect 就绪判定、judge 冷席评审、锁等待、horizon 防线
 - **复杂用例回归**(v0.9.1):多波交付、grill 修复、预算/阻塞/重置、CLI 并发、judged digest;claim-mode delta 与 grill 误报修复
+- **平台中立**(v0.9.2):解释器显式解析与上报(POSIX `/bin/sh` ↔ Windows `%COMSPEC%`,可 `config.shell`/`GOAL_GATE_SHELL`/`--shell` 覆盖),解释器缺失 fail-loud 并给修复名;`app.asar` 模块回退改 `pathToFileURL`(Windows ESM 不再丢真 `defineTool`);测试与 e2e 夹具平台中立,Windows 默认 shell 与 Git Bash 双模式全绿
+- **判定可信度加固**(v0.10.0):账本完整性(HMAC 签名,密钥在工作区外;篡改/删除判 state-error,绝不静默重建)、锁正确性(只读不取锁、pid 存活检测、token 校验释放、re-stat 回收、`unlock` 人工恢复)、指标身份锚语句、首轮不判定、判官分数与 calib 由门控自跑、证据工作区围栏、CLI 退出码按 rc 如实映射(4=state-error/5=busy)、工作区缺失 fail-closed、盖章默认需人批
+- **入口不产出决策**(v0.10.0):十五个入口几乎全是 raw JSON,11/15 以 `{` 开头,没有任何"下一步做什么";`/goal-loop-at` 更是完全不碰 grill(`grillContract` 只有 `goal_gate_grill` 一条路),写好的评估纪律在开循环那一刻被绕过。修:开循环即自动 grill(只读、不烧轮、默认开,`grill:false`/`--no-grill` 可关),verdict 排进 nextActions 第一条可执行项(`fill-real-checks` 恒在最前,其次 `fix-contract-design`),派工前先 grill(`goal_loop_at({dispatch:true})` / `goal_gate_staff({spawn:true})` 在 verdict 非 ready 时拒绝造人并附 reason+findings+suggestions),盖章也 grill 但只告警(批准权在人)。同时校准 grill 严重度与确定性 preflight 对齐("什么都没执行"降为 low,preflight 已在报),否则每条静态契约都吃 high、派工门槛形同虚设
 - **可证伪性**(v0.10):`neg:` 反向对照把"这条 check 能不能红"变成机器可证的事实;顺序无关文法 + 未知字段拒评,堵住"整条 AC 静默消失"的评估面开天窗
 - **爆炸半径**(v0.11):`risk:` 三档车道;wide/hard 要求全契约可证伪;hard 车道由人类按产物摘要开门,批准不随契约漂移
 - **学习边**(v0.12):失败按成因签名累计,复发 2 次升格为约束;未结账不许盖章/声明完成;约束回流到契约评审(grill)而不是某条 worker 指令
