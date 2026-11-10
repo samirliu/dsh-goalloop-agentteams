@@ -130,6 +130,18 @@ Specs: `exit=0` | `exit=N` | `<=N` | `>=N` | `<N` | `>N` | `=N` | `!=N` | `maxim
 - **`risk:` is the blast-radius lane (Art3 §8 — gate on blast radius, not confidence).** `low` (default) = reversible and contained, normal gating. `wide` = reversible but shared, and `hard` = hard to reverse (migrations, deletions, production data, money). Both stricter lanes demand a falsifiability proof on **every** AC (`neg:` for decisive ACs, `calib:` for judged ones) — a wider blast radius never buys a laxer check. A `hard` lane **does not open** on a green gate: completion claims are denied with `risk-lane-closed` until a human records `goal_gate_approve` / `/goal-approve`, and that approval is bound to the contract stamp **and the current tree digest** — edit the artifact and it lapses. It is a closed lane, not a higher threshold.
 - **`deliverable:`** is advisory in the gate but drives preflight: a contract with no check touching the deliverable and no runtime AC gets `deliverable-unverified` / `no-runtime-ac` warnings before a round is burned.
 
+## Learning edge / 学习边
+
+A gate with only a correction edge fixes this round; the next one starts with the same blind spot. This plugin keeps the long edge too:
+
+- every failing/broken AC is recorded under a **cause signature** (status + `why`, with volatile numbers normalized);
+- the same cause recurring **≥2** times is promoted to a **lesson** (`.goal-gate/lessons.json`);
+- an open lesson **blocks** `goal_gate_stamp` and completion claims until it is closed as `resolved` (with evidence) or `waived` (with a reason) via `goal_gate_lesson` / `/goal-lesson` / the CLI. An empty note is refused — that would only silence the alarm;
+- a cause that resurfaced after being closed **reopens** and counts as `reopened` (the constraint did not hold);
+- the lesson lands where the work gets split: `goal_gate_grill` reports it as a finding on that AC, and `goal_gate_check` lists it in `openLessons`.
+
+> A failure that never becomes a constraint is a failure you have scheduled to meet again.
+
 ## Gate semantics / 门控语义
 
 `goal_gate_check` returns `rc=0` GO, `rc=2` NO-GO, `rc=3` BLOCKED, `rc=4` state error. Every round is appended to `.goal-gate/history.jsonl`.

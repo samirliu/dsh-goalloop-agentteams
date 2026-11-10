@@ -248,3 +248,12 @@ AC-2 | malformed row is refused | check: `/abs/node dist/csv2jsonl.mjs fixtures/
 | `goal_gate_collect.readyToCheck:false` | tasks missing or still in progress | assign a teammate (`assign`) or wait; do not run the gate yet |
 | `deliverable-unverified` / no runtime AC | checks only touch derived data | add a runtime AC that executes the deliverable, plus a judged AC on it |
 | `roundsExhausted` / `timeExhausted` | budget spent | stop and escalate; the budget is frozen, not negotiable |
+
+## Learning edge (do not skip)
+
+The gate keeps two return paths. The short one (repair the failing AC) fixes this round. The long one fixes every round after it:
+
+1. After a round, read `openLessons` in the `goal_gate_check` output (or `goal_gate_lesson action:'list'`).
+2. When the same cause repeats (the gate promotes it automatically at 2 occurrences), do **not** just re-run the same command: change the check/contract so the cause cannot recur.
+3. Close it with evidence (`action:'resolved'`, note = what changed) or an explicit waiver (`action:'waived'`, note = why it no longer applies).
+4. Stamping and completion claims are refused while a lesson is open (`lessons-open`). That refusal is the point: a failure that never becomes a constraint is scheduled to happen again.

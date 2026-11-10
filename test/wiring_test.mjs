@@ -50,9 +50,9 @@ for (const t of registeredTools) {
 }
 assert.deepEqual(registeredTools.map(t => t.name).sort(), [
   'goal_gate_approve', 'goal_gate_audit', 'goal_gate_baseline', 'goal_gate_check', 'goal_gate_collect', 'goal_gate_dispatch', 'goal_gate_doctor', 'goal_gate_grill',
-  'goal_gate_init', 'goal_gate_judge', 'goal_gate_staff', 'goal_gate_stamp', 'goal_gate_status', 'goal_loop_at',
+  'goal_gate_init', 'goal_gate_judge', 'goal_gate_lesson', 'goal_gate_staff', 'goal_gate_stamp', 'goal_gate_status', 'goal_loop_at',
 ]);
-assert.deepEqual(registeredCmds.map(c => c.name), ['goal-gate', 'goal-loop-at', 'goal-stamp', 'goal-grill', 'goal-baseline', 'goal-approve', 'goal-doctor', 'goal-collect', 'goal-judge', 'goal-reset', 'goal-audit']);
+assert.deepEqual(registeredCmds.map(c => c.name), ['goal-gate', 'goal-loop-at', 'goal-stamp', 'goal-grill', 'goal-baseline', 'goal-lesson', 'goal-approve', 'goal-doctor', 'goal-collect', 'goal-judge', 'goal-reset', 'goal-audit']);
 assert.deepEqual(registeredSkills.map(s => s.name).sort(), ['goal-loop', 'goal-loop-contract', 'goal-loop-grill']);
 assert.ok(registeredSkills.every(s => typeof s.content === 'string' && s.content.length > 500), 'embedded skill bodies are loaded');
 assert.equal(preExecuteListeners.length, 1);

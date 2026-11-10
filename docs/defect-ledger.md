@@ -52,6 +52,7 @@
 | 43 | 完成声明重复要求 delta 改善 | GO 已经接受当前水位;拦截器重跑同一 optimize AC 时 `baseline: delta` 仍要求再涨一次,一次正常波动就能把已 GO 的目标判 NO-GO | `runGate(mode:'claim')`:声明轮 `delta` 退化为不回退(真恶化仍失败);`goal_gate_check` 保持严格 delta | e2e case1;smoke:claimMode |
 | 44 | grill 对"按序同 scope"和"有 probe+calib 的 judged"误报 | 顺序依赖的两个 AC 共享目录被报 scope 冲突;任何 judged 都带 medium "must bind evidence" → 有 judged 的契约永远无法 ready | scope 冲突仅在**无 depends 顺序**时报告;judged evidence 改为 low 提醒(门控仍强制 digest/calib) | v09:ordered/judged grill |
 | 45 | CLI 并发无锁 | `bin/gate.mjs check/stamp` 绕过账本锁,两个进程并发会互相覆盖 round/baseline;case4 暴露 | CLI check/stamp 走 `withLedgerLock(...,{waitMs:2000})`,busy 明确退出 | examples/plugin-e2e case4 |
+| 52 | **只有纠正边，没有学习边** | 失败被修好就消失：同一成因在后续轮次/后续契约里原样复发，系统很快但永远不会变聪明（Art3 §6 点名的病）。缺陷总账是人手写的,插件自身没有"失败→约束"的通路 | 新增 `lib/lessons.js`：按「AC + 成因签名（数字归一化）」累计，复发 ≥2 次升格为 lesson；open lesson 拦截 `goal_gate_stamp` 与完成声明（`lessons-open`），结账必须给证据/理由（空口拒绝），结账后再复发会重开并记 `reopened`；落点接进 grill 与 check 输出 | v12:签名/升格/去重/空口拒绝/重开/盖章拦截/声明拦截/工具面/隔离 7 组断言 |
 | 49 | **门控不分爆炸半径** | 一次文案改动和一次删库迁移走同一扇门、按同一个分数放行——这是 Art3 §8 点名的错误变量（置信度是模型唯一能影响的输入，所以它是最弱的判据） | 文法新增 `risk: low|wide|hard`；wide/hard 要求每条 AC 都有可证伪证据（`neg:`/`calib:`），不留豁免；hard 车道**不开门**：全绿也拦完成声明（`risk-lane-closed`），需人类 `goal_gate_approve` / `/goal-approve`，批准绑定「契约盖章 + 当前产物摘要」，产物一改即失效 | v11:车道/加严/开闭/绑定失效 6 组断言;CLI approve 实跑 |
 | 50 | **"≤1/3 unverifiable 允许 GO"已成死代码** | 缺陷 #17 把仪器故障全升格为 broken 之后，`unverifiable` 在正常路径上已不可达（实测 judged 无判官/数值取不到/缺 probe 全部 broken）——ratio 宽容与"干净轨迹"规则都不会被触发，是 harness 自身的腐化 | 不删守卫但不再依赖它：车道加严改为可达的"每条 AC 都要可证伪证据"，并在此记账（下轮决定是删除还是给它一个真实生产者） | v11:gap 场景证明 `unproven-lane` 可达 |
 | 51 | **批准可以是"一类"而不是"一版"** | 若批准只按契约盖章放行，产物在批准后被改仍然有效——等于用一次批准授权了未来所有改动 | 批准记录 `{stamp, digest}` 双绑定：`riskLaneDenial` 每次声明完成时重算 tree digest，不匹配即视为未批准 | v11:改产物后车道重新关闭 |
@@ -77,6 +78,7 @@
 - **复杂用例回归**(v0.9.1):多波交付、grill 修复、预算/阻塞/重置、CLI 并发、judged digest;claim-mode delta 与 grill 误报修复
 - **可证伪性**(v0.10):`neg:` 反向对照把"这条 check 能不能红"变成机器可证的事实;顺序无关文法 + 未知字段拒评,堵住"整条 AC 静默消失"的评估面开天窗
 - **爆炸半径**(v0.11):`risk:` 三档车道;wide/hard 要求全契约可证伪;hard 车道由人类按产物摘要开门,批准不随契约漂移
+- **学习边**(v0.12):失败按成因签名累计,复发 2 次升格为约束;未结账不许盖章/声明完成;约束回流到契约评审(grill)而不是某条 worker 指令
 
 ## 运营发现(循环侧,非内核缺陷)
 

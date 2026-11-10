@@ -9,6 +9,7 @@
 //   node bin/gate.mjs approve   [--cwd <dir>] [--by <who>]   hard 车道的人类开门(绑定当前 digest;门控非绿则拒绝)
 //   node bin/gate.mjs reset     [--cwd <dir>] [--new-loop]  人类解除 BLOCKED / 轮换实验时钟
 //   node bin/gate.mjs preflight [--cwd <dir>]   契约预检(裸解释器/永真式/仪器问题)
+//   node bin/gate.mjs lesson    [--cwd <dir>] [--close <key>] [--as resolved|waived] [--note <text>]  学习边
 import fs from 'node:fs';
 import { runGate, parseContract, contractStamp, treeDigest } from '../lib/core.js';
 import {
@@ -16,6 +17,7 @@ import {
   preflightChecks, neverFailedAcs, loopIdleStatus, idleWarning, duplicateEvalNote,
   applyStamp, timeBudgetStatus, efficiencyOf, statusReport, auditReport, withLedgerLock,
 } from '../lib/ledger.js';
+import { allLessons, openLessons, handleLesson } from '../lib/lessons.js';
 
 const args = process.argv.slice(2);
 const cmd = args[0] ?? 'status';
@@ -56,6 +58,18 @@ if (cmd === 'reset') {
 }
 
 const cp = contractPath(root);
+if (cmd === 'lesson') {
+  const closeKey = flag('--close');
+  if (!closeKey) {
+    out({ rc: 0, code: 'listed', open: openLessons(root).map((l) => l.key), lessons: allLessons(root) });
+    process.exit(0);
+  }
+  const action = flag('--as') === 'waived' ? 'waived' : 'resolved';
+  const res = handleLesson(root, { key: closeKey, action, note: flag('--note') ?? '', by: flag('--by') ?? 'user' });
+  out({ rc: res.ok ? 0 : 2, ...res });
+  process.exit(res.ok ? 0 : 2);
+}
+
 if (cmd === 'approve') {
   if (!fs.existsSync(cp)) fail(4, { rc: 4, code: 'state-error', reason: 'no contract', contract: cp });
   const locked = await withLedgerLock(root, async () => {

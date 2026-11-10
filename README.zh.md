@@ -114,6 +114,18 @@ AC-N | <yes/no 判定语句> | check: `<可失败命令>` | [probe: `<仪器检�
 - **检查产生的证据**（渲染、日志、判官输入）放 `.goal-gate/evidence/`——该目录不进摘要。检查写了工作区其它位置 → 本轮判 `check-mutated-tree`。
 - **`deliverable:`** 门控不强制，但驱动预检：没有任何 check 碰交付物、也没有运行时 AC，会在烧轮前亮 `deliverable-unverified` / `no-runtime-ac`。
 
+## 学习边
+
+只有纠正边的门控只修这一轮；下一次仍从同一个盲区出发。本插件同时保留长边：
+
+- 每条 failed/broken 的 AC 按**成因签名**记录（状态 + `why`，易变数字归一化）；
+- 同一成因复发 **≥2** 次 → 升格为 **lesson**（`.goal-gate/lessons.json`）；
+- 未结账的 lesson **拦截** `goal_gate_stamp` 与完成声明，直到用 `goal_gate_lesson` / `/goal-lesson` / CLI 以 `resolved`（附证据）或 `waived`（附理由）结账；空理由会被拒——那只是把报警器关掉；
+- 结账后再次复发的成因会**重新打开**并记 `reopened`（说明约束没兜住）；
+- 落点是"切分工作的那份 brief"：`goal_gate_grill` 在该 AC 上给出 finding，`goal_gate_check` 把它列进 `openLessons`。
+
+> 没有变成约束的失败，是已经排进日程的下一次失败。
+
 ## 门控语义
 
 `goal_gate_check` 返回 `rc=0` GO、`rc=2` NO-GO、`rc=3` BLOCKED、`rc=4` 状态错；每轮追加进 `.goal-gate/history.jsonl`。
